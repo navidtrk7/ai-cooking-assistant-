@@ -2067,7 +2067,7 @@ h3 { font-size: 16px; font-weight: 600; line-height: 1.5; }
 /* ═══════════════════════════════════════════
    NAVIGATION
    ═══════════════════════════════════════════ */
-function navigateTo(pageId) {
+function navigateTo(pageId, updateHash = true) {
   // Hide all pages
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   // Show target page
@@ -2092,10 +2092,15 @@ function navigateTo(pageId) {
     stores: 'مقایسه فروشگاه‌ها', family: 'خانواده', reports: 'گزارش‌ها',
     settings: 'تنظیمات'
   };
-  document.getElementById('sheetContext').textContent = contextMap[pageId] || 'خانه';
+  const ctx = document.getElementById('sheetContext');
+  if (ctx) ctx.textContent = contextMap[pageId] || 'خانه';
   
   closeSidebar();
   window.scrollTo(0, 0);
+
+  if (updateHash && window.location.hash !== '#' + pageId) {
+    history.pushState(null, '', '#' + pageId);
+  }
 }
 
 // Sidebar nav clicks
@@ -2187,17 +2192,73 @@ function spinWheel() {
 }
 
 /* ═══════════════════════════════════════════
-   ONBOARDING
+   ROUTING & ONBOARDING
    ═══════════════════════════════════════════ */
+const obHashToId = {
+  '': 'ob-welcome',
+  'landing': 'ob-welcome',
+  'welcome': 'ob-welcome',
+  'onboarding': 'ob-welcome',
+  'household': 'ob-household',
+  'health': 'ob-profile',
+  'profile': 'ob-profile',
+  'pantry-setup': 'ob-pantry'
+};
+
+const obIdToHash = {
+  'ob-welcome': 'landing',
+  'ob-household': 'household',
+  'ob-profile': 'health',
+  'ob-pantry': 'pantry-setup'
+};
+
 function showOB(id) {
-  document.querySelectorAll('.onboarding-page').forEach(p => p.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  if (obIdToHash[id]) {
+    location.hash = obIdToHash[id];
+  } else {
+    document.querySelectorAll('.onboarding-page').forEach(p => {
+      p.style.display = '';
+      p.classList.remove('active');
+    });
+    document.getElementById('app').style.display = 'none';
+    const mNav = document.getElementById('mobileNav');
+    if (mNav) mNav.style.display = 'none';
+    const target = document.getElementById(id);
+    if (target) target.classList.add('active');
+  }
 }
+
 function closeOnboarding() {
-  document.querySelectorAll('.onboarding-page').forEach(p => p.style.display = 'none');
-  document.getElementById('app').style.display = 'flex';
-  document.getElementById('mobileNav').style.display = '';
+  location.hash = 'home';
 }
+
+function handleRoute() {
+  const rawHash = (window.location.hash || '').replace(/^#\/?/, '').trim();
+  if (obHashToId[rawHash] !== undefined) {
+    // Show onboarding step
+    document.getElementById('app').style.display = 'none';
+    const mNav = document.getElementById('mobileNav');
+    if (mNav) mNav.style.display = 'none';
+    document.querySelectorAll('.onboarding-page').forEach(p => {
+      p.style.display = '';
+      p.classList.remove('active');
+    });
+    const target = document.getElementById(obHashToId[rawHash]);
+    if (target) target.classList.add('active');
+    window.scrollTo(0, 0);
+  } else {
+    // Show main app and target dashboard
+    document.querySelectorAll('.onboarding-page').forEach(p => p.style.display = 'none');
+    document.getElementById('app').style.display = 'flex';
+    const mNav = document.getElementById('mobileNav');
+    if (mNav) mNav.style.display = '';
+    const pageId = rawHash === 'dashboard' ? 'home' : rawHash;
+    navigateTo(pageId || 'home', false);
+  }
+}
+
+window.addEventListener('hashchange', handleRoute);
+window.addEventListener('DOMContentLoaded', handleRoute);
 
 /* ═══════════════════════════════════════════
    TAB BAR (Pantry)
