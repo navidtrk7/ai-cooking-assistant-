@@ -1,5 +1,8 @@
-import type { Household, PantryItem, RecommendationResponse, AiChatResponse, AiActionDraft } from '../types';
-
+import type { 
+  Household, PantryItem, RecommendationResponse, AiChatResponse, 
+  AiActionDraft, MealPlanDay, ShoppingItem, StoreComparison, 
+  ReceiptScan, FamilyTask 
+} from '../types';
 
 const API_BASE_URL = 'http://localhost:8200/api/v1';
 
@@ -47,6 +50,52 @@ export const api = {
       body: JSON.stringify(filters || {}),
     });
     if (!res.ok) throw new Error('خطا در دریافت پیشنهادهای هوش مصنوعی');
+    return res.json();
+  },
+
+  async finishCooking(recipeId: string, idempotencyKey: string): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/cooking/finish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipe_id: recipeId, idempotency_key: idempotencyKey }),
+    });
+    if (!res.ok) throw new Error('خطا در ثبت پایان پخت');
+    return res.json();
+  },
+
+  async getMealPlans(): Promise<MealPlanDay[]> {
+    const res = await fetch(`${API_BASE_URL}/meal-plans`);
+    if (!res.ok) throw new Error('خطا در دریافت برنامه هفتگی');
+    return res.json();
+  },
+
+  async getShoppingList(): Promise<ShoppingItem[]> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list`);
+    if (!res.ok) throw new Error('خطا در دریافت لیست خرید');
+    return res.json();
+  },
+
+  async toggleShoppingItem(itemId: string): Promise<ShoppingItem> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/toggle/${itemId}`, { method: 'POST' });
+    if (!res.ok) throw new Error('خطا در تغییر وضعیت قلم خرید');
+    return res.json();
+  },
+
+  async getStoresComparison(): Promise<StoreComparison> {
+    const res = await fetch(`${API_BASE_URL}/stores`);
+    if (!res.ok) throw new Error('خطا در دریافت مقایسه فروشگاه‌ها');
+    return res.json();
+  },
+
+  async scanReceipt(): Promise<ReceiptScan> {
+    const res = await fetch(`${API_BASE_URL}/receipts/scan`, { method: 'POST' });
+    if (!res.ok) throw new Error('خطا در اسکن فاکتور');
+    return res.json();
+  },
+
+  async getFamilyTasks(): Promise<FamilyTask[]> {
+    const res = await fetch(`${API_BASE_URL}/family-tasks`);
+    if (!res.ok) throw new Error('خطا در دریافت وظایف خانواده');
     return res.json();
   },
 

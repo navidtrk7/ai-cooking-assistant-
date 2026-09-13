@@ -95,3 +95,61 @@ export interface ChatMessage {
   draft_action?: AiActionDraft | null;
   timestamp: string;
 }
+
+export interface MealPlanDay {
+  day: string;
+  date: string;
+  lunch: string;
+  dinner: string;
+  calories: number;
+}
+
+export interface ShoppingItem {
+  id: string;
+  name: string;
+  amount: string;
+  category: string;
+  checked: boolean;
+  estimated_price: number;
+}
+
+export interface StoreInfo {
+  name: string;
+  total_price: number;
+  delivery_time: string;
+  delivery_fee: number;
+  coverage_percent: number;
+  link: string;
+}
+
+export interface StoreComparison {
+  observed_time: string;
+  stores: StoreInfo[];
+}
+
+export interface ReceiptItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  category: string;
+  price: number;
+  checked: boolean;
+}
+
+export interface ReceiptScan {
+  receipt_id: string;
+  store_name: string;
+  date: string;
+  total_amount: number;
+  items: ReceiptItem[];
+}
+
+export interface FamilyTask {
+  id: string;
+  title: string;
+  assigned_to: string;
+  reward_points: number;
+  is_child_safe: boolean;
+  completed: boolean;
+}
