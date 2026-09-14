@@ -12,13 +12,15 @@ import { api } from './services/api';
 import type { 
   PantryItem, Recipe, RecommendationResponse, ChatMessage, 
   MealPlanDay, ShoppingItem, StoreComparison, ReceiptScan, FamilyTask,
-  AiStatusResponse, User
+  AiStatusResponse, User, GeminiModelInfo, RecipeCatalogItem
 } from './types';
 import { AuthModal } from './components/auth/AuthModal';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { LandingPage } from './components/public/LandingPage';
+import { LoginPage } from './components/public/LoginPage';
 
 export function App() {
-  const [currentView, setCurrentView] = useState<string>('home');
+  const [currentView, setCurrentView] = useState<string>('landing');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [ollamaActive, setOllamaActive] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<string>('۱۲:۳۰');
@@ -30,22 +32,14 @@ export function App() {
     if (saved) {
       try { return JSON.parse(saved); } catch {}
     }
-    // Default logged in as Super Admin 'navid'
-    return {
-      id: 'u-admin',
-      username: 'navid',
-      phone_number: '09120000000',
-      full_name: 'نوید (مدیر ارشد)',
-      role: 'super_admin',
-      is_active: true,
-      created_at: '1403-06-01'
-    };
+    return null;
   });
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
 
   const handleUserLogin = (user: User) => {
     setCurrentUser(user);
     localStorage.setItem('cooking_user', JSON.stringify(user));
+    navigate('home');
   };
 
   const handleUserLogout = () => {
@@ -64,6 +58,8 @@ export function App() {
   const [storesData, setStoresData] = useState<StoreComparison | null>(null);
   const [familyTasks, setFamilyTasks] = useState<FamilyTask[]>([]);
   const [receiptData, setReceiptData] = useState<ReceiptScan | null>(null);
+  const [recipeCatalog, setRecipeCatalog] = useState<RecipeCatalogItem[]>([]);
+  const [catalogFilter, setCatalogFilter] = useState<string>('همه');
   const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
 
   // Servings Scaler state
@@ -101,8 +97,9 @@ export function App() {
   const [aiStatus, setAiStatus] = useState<AiStatusResponse | null>(null);
   const [showAiSettings, setShowAiSettings] = useState<boolean>(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState<string>('');
-  const [geminiModelInput, setGeminiModelInput] = useState<string>('gemini-1.5-flash');
-  const [providerChoice, setProviderChoice] = useState<string>('auto');
+  const [geminiModelInput, setGeminiModelInput] = useState<string>('gemini-3.6-flash');
+  const [geminiModels, setGeminiModels] = useState<GeminiModelInfo[]>([]);
+  const [providerChoice, setProviderChoice] = useState<string>('gemini');
   const [keyTesting, setKeyTesting] = useState<boolean>(false);
   const [keyTestResult, setKeyTestResult] = useState<{ valid: boolean; message?: string; error?: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -112,7 +109,7 @@ export function App() {
       content: 'سلام! من دستیار هوشمند آشپزخانه شما هستم. با قابلیت اتصال به Google Gemini و مدلهای محلی. هر سؤالی در مورد غذا، پخت، انبارداری و برنامه‌ریزی دارید در خدمتم.',
       timestamp: 'همین الان',
       provider: 'gemini',
-      model: 'gemini-1.5-flash'
+      model: 'gemini-3.6-flash'
     }
   ]);
 
@@ -170,7 +167,7 @@ export function App() {
 
         api.getAiStatus().then(st => {
           setAiStatus(st);
-          setGeminiModelInput(st.gemini_model || 'gemini-1.5-flash');
+          setGeminiModelInput(st.gemini_model || 'gemini-3.6-flash');
         }).catch(() => {});
 
         const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes] = await Promise.all([
@@ -189,6 +186,7 @@ export function App() {
         setShoppingList(shopRes);
         setStoresData(storesRes);
         setFamilyTasks(tasksRes);
+        api.getRecipeCatalog().then(result => setRecipeCatalog(result.items)).catch(() => undefined);
       } catch (err) {
         console.error('Failed to load initial data:', err);
       }
@@ -372,6 +370,17 @@ export function App() {
     } : current);
   };
 
+  // Open Recipe from Catalog
+  const handleOpenCatalogRecipe = async (recipeId: string) => {
+    try {
+      const fullRecipe = await api.getRecipeById(recipeId);
+      setSelectedRecipe(fullRecipe);
+      navigate('recipe');
+    } catch {
+      showToast('خطا در بارگذاری اطلاعات دستور پخت');
+    }
+  };
+
   // AI Chat Submit
   const handleSendAi = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -422,6 +431,11 @@ export function App() {
     try {
       const res = await api.testGeminiKey(geminiKeyInput.trim() || undefined);
       setKeyTestResult(res);
+      if (res.valid && res.models?.length) {
+        setGeminiModels(res.models);
+        setGeminiModelInput(res.recommended_model || res.model || res.models[0].id);
+        showToast('اتصال برقرار شد؛ مدل‌های قابل استفاده از حساب شما خوانده شدند.');
+      }
     } catch {
       setKeyTestResult({ valid: false, error: 'خطا در ارتباط با سرور بک‌اند' });
     } finally {
@@ -436,6 +450,10 @@ export function App() {
         gemini_model: geminiModelInput,
         ai_provider: providerChoice
       });
+      if (!res?.success) {
+        showToast(res?.message || 'تنظیمات ذخیره نشد.');
+        return;
+      }
       if (res?.status) {
         setAiStatus(res.status);
       }
@@ -445,6 +463,19 @@ export function App() {
       showToast('خطا در ذخیره تنظیمات هوش مصنوعی.');
     }
   };
+
+  useEffect(() => {
+    if (showAiSettings && geminiModels.length === 0) {
+      api.getGeminiModels(geminiKeyInput.trim() || undefined).then(res => {
+        if (res?.models?.length) {
+          setGeminiModels(res.models);
+          if (res.recommended_model && !geminiModelInput) {
+            setGeminiModelInput(res.recommended_model);
+          }
+        }
+      }).catch(() => {});
+    }
+  }, [showAiSettings]);
 
 
   // Confirm AI Action (Human-in-the-Loop)
@@ -470,6 +501,7 @@ export function App() {
       { id: 'admin', label: 'پنل مدیریت (نوید)', icon: ShieldCheck }
     ] : []),
     { id: 'recommend', label: 'پیشنهاد هوشمند غذا', icon: Compass },
+    { id: 'catalog', label: 'فهرست غذاهای ایرانی', icon: BookOpen },
     { id: 'wheel', label: 'گردونه تصمیم‌گیری', icon: RotateCcw },
     { id: 'recipe', label: 'دستور پخت و جزئیات', icon: BookOpen },
     { id: 'cooking', label: 'جلسه آشپزی و تایمر', icon: Clock },
@@ -483,6 +515,13 @@ export function App() {
     { id: 'settings', label: 'تنظیمات و سلامت', icon: Settings },
     { id: 'onboarding', label: 'مسیر آشنایی و ورود', icon: Heart },
   ];
+
+  if (currentView === 'landing') {
+    return <LandingPage onStart={() => navigate('home')} onLogin={() => navigate('login')} />;
+  }
+  if (currentView === 'login') {
+    return <LoginPage onSuccess={handleUserLogin} onBack={() => navigate('landing')} />;
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', direction: 'rtl', background: 'var(--bg)' }}>
@@ -1101,6 +1140,42 @@ export function App() {
 
               </div>
 
+            </div>
+          )}
+
+          {/* 1.5. VIEW: IRANIAN RECIPE CATALOG */}
+          {currentView === 'catalog' && (
+            <div style={{ maxWidth: 1120, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div><h1 style={{ fontSize: 24, fontWeight: 800 }}>فهرست غذاهای ایرانی</h1><p style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 5 }}>کاتالوگ اولیه شامل {recipeCatalog.length.toLocaleString('fa-IR')} غذا، با زمان، هزینه، مواد کلیدی و هشدارهای اولیه.</p></div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{['همه', ...Array.from(new Set(recipeCatalog.map(item => item.category)))].map(category => <button key={category} className={`chip ${catalogFilter === category ? 'active' : ''}`} onClick={() => setCatalogFilter(category)}>{category}</button>)}</div>
+              <div className="catalog-grid">{recipeCatalog.filter(item => catalogFilter === 'همه' || item.category === catalogFilter).map(item => <article className="card catalog-card" key={item.recipe_id}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}><span className="badge badge-success">{item.category}</span><span style={{ fontSize: 11, color: 'var(--muted)' }}>{item.region}</span></div>
+                <h2 style={{ fontSize: 17, margin: '12px 0 6px' }}>{item.title_fa}</h2><p style={{ color: 'var(--text-2)', fontSize: 12 }}>{item.main_protein} • {item.base}</p>
+                <div className="catalog-meta"><span>⏱ {item.total_min.toLocaleString('fa-IR')} دقیقه</span><span>{item.cost_tier}</span><span>{item.occasion}</span></div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 12 }}>{item.health_tags.map(tag => <span className="catalog-tag" key={tag}>{tag}</span>)}</div>
+                {item.allergens_or_notes !== 'ندارد' && <p className="catalog-note">هشدار: {item.allergens_or_notes}</p>}
+                <button
+                  onClick={() => handleOpenCatalogRecipe(item.recipe_id)}
+                  style={{
+                    marginTop: 14,
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 10,
+                    border: '1px solid var(--primary)',
+                    background: 'var(--primary-light)',
+                    color: 'var(--primary)',
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6
+                  }}
+                >
+                  مشاهده دستور پخت و ارزش غذایی <ChevronRight size={14} />
+                </button>
+              </article>)}</div>
             </div>
           )}
 
@@ -2445,9 +2520,9 @@ export function App() {
                       fontSize: 12
                     }}
                   >
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (سریع و هوشمند - پیشنهادی)</option>
-                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (جدیدترین مدل گوگل)</option>
-                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (استدلال عمیق)</option>
+                    {geminiModels.length ? geminiModels.map(model => (
+                      <option key={model.id} value={model.id}>{model.name}{model.recommended ? ' — پیشنهادی برای حساب شما' : ''}</option>
+                    )) : <option value={geminiModelInput}>ابتدا «تست اتصال کلید» را بزنید</option>}
                   </select>
                 </div>
 

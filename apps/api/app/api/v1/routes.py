@@ -8,6 +8,7 @@ from apps.api.app.schemas.schemas import (
     ChatMessage, AiChatResponse, AiActionDraft, AiStatusResponse, AiConfigUpdate
 )
 from apps.api.app.data.seed_data import DEFAULT_HOUSEHOLD, INITIAL_PANTRY_ITEMS, INITIAL_RECIPES
+from apps.api.app.data.catalog import get_recipe_catalog
 from apps.api.app.ai.ollama_adapter import ollama_service
 from apps.api.app.ai.gemini_adapter import gemini_service
 from apps.api.app.ai.recommender import recommender_engine
@@ -207,6 +208,15 @@ async def delete_pantry_item(item_id: str):
 @router.get("/recipes", response_model=List[Recipe])
 async def list_recipes():
     return recipes_db
+
+@router.get("/recipes/catalog")
+async def list_recipe_catalog(category: Optional[str] = None, occasion: Optional[str] = None):
+    catalog = get_recipe_catalog()
+    if category:
+        catalog = [item for item in catalog if item["category"] == category]
+    if occasion:
+        catalog = [item for item in catalog if occasion in item["occasion"]]
+    return {"count": len(catalog), "items": catalog}
 
 @router.get("/recipes/{recipe_id}", response_model=Recipe)
 async def get_recipe(recipe_id: str):

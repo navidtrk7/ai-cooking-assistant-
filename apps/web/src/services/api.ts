@@ -1,7 +1,7 @@
 import type { 
   Household, PantryItem, RecommendationResponse, AiChatResponse, 
   AiActionDraft, MealPlanDay, ShoppingItem, StoreComparison, 
-  ReceiptScan, FamilyTask, AiStatusResponse 
+  ReceiptScan, FamilyTask, AiStatusResponse, GeminiModelInfo, RecipeCatalogItem, Recipe 
 } from '../types';
 
 
@@ -51,6 +51,24 @@ export const api = {
       body: JSON.stringify(filters || {}),
     });
     if (!res.ok) throw new Error('خطا در دریافت پیشنهادهای هوش مصنوعی');
+    return res.json();
+  },
+
+  async getRecipeCatalog(): Promise<{ count: number; items: RecipeCatalogItem[] }> {
+    const res = await fetch(`${API_BASE_URL}/recipes/catalog`);
+    if (!res.ok) throw new Error('خطا در دریافت فهرست غذاها');
+    return res.json();
+  },
+
+  async getRecipes(): Promise<Recipe[]> {
+    const res = await fetch(`${API_BASE_URL}/recipes`);
+    if (!res.ok) throw new Error('خطا در دریافت دستور پخت‌ها');
+    return res.json();
+  },
+
+  async getRecipeById(recipeId: string): Promise<Recipe> {
+    const res = await fetch(`${API_BASE_URL}/recipes/${recipeId}`);
+    if (!res.ok) throw new Error('خطا در دریافت جزئیات دستور پخت');
     return res.json();
   },
 
@@ -126,7 +144,7 @@ export const api = {
     return res.json();
   },
 
-  async testGeminiKey(apiKey?: string): Promise<{ valid: boolean; model?: string; error?: string; message?: string }> {
+  async testGeminiKey(apiKey?: string): Promise<{ valid: boolean; model?: string; recommended_model?: string; models?: GeminiModelInfo[]; error?: string; message?: string }> {
     const res = await fetch(`${API_BASE_URL}/ai/test-key`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -238,4 +256,3 @@ export const api = {
     return res.json();
   },
 };
-

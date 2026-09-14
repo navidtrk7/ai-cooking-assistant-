@@ -102,7 +102,7 @@ class AiChatResponse(BaseModel):
     reply: str
     draft_action: Optional[AiActionDraft] = None
     provider: str = "gemini"  # "gemini", "ollama", "heuristic"
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-3.6-flash"
 
 class AiStatusResponse(BaseModel):
     active_provider: str

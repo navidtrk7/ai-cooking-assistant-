@@ -329,6 +329,25 @@ button, input, select, textarea {
 .cooking-roadmap li.done .roadmap-dot, .cooking-roadmap li.current .roadmap-dot { background: var(--primary); color: #fff; }
 .cooking-roadmap li.done:not(:last-child)::before { background: var(--primary); }
 .cooking-roadmap li.current { color: var(--text); font-weight: 700; }
+
+.landing-page { min-height: 100vh; background: var(--bg); color: var(--text); padding: 20px clamp(20px, 6vw, 96px) 64px; }
+.landing-nav { max-width: 1160px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+.landing-brand { display: flex; align-items: center; gap: 9px; font-size: 16px; }
+.landing-brand span, .login-logo { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: var(--primary); color: #fff; }
+.landing-hero { max-width: 760px; margin: 92px auto 64px; text-align: center; }
+.landing-kicker { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; color: var(--primary); background: var(--primary-light); border-radius: var(--radius-pill); font-size: 12px; font-weight: 700; }
+.landing-hero h1 { font-size: clamp(38px, 6vw, 66px); line-height: 1.2; margin: 20px 0 14px; letter-spacing: -1px; }
+.landing-hero h1 em { color: var(--primary); font-style: normal; }
+.landing-hero > p { max-width: 620px; margin: auto; color: var(--text-2); font-size: 17px; line-height: 1.9; }
+.landing-actions { display: flex; gap: 10px; justify-content: center; margin: 28px 0; }
+.landing-prompt { display: inline-flex; align-items: center; gap: 9px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-pill); color: var(--text-2); font-size: 12px; box-shadow: var(--shadow-sm); }
+.landing-prompt svg { color: var(--primary); }
+.landing-features { max-width: 1050px; margin: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.landing-feature { padding: 23px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.landing-feature svg { color: var(--primary); }.landing-feature h2 { font-size: 15px; margin: 14px 0 8px; }.landing-feature p, .landing-problem p { font-size: 12.5px; line-height: 1.8; color: var(--text-2); }
+.landing-problem { max-width: 800px; margin: 54px auto 0; padding: 24px; background: var(--surface-2); border-radius: var(--radius-lg); display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }.landing-problem svg { color: var(--apricot); margin-bottom: 10px; }.landing-problem strong { display: block; font-size: 14px; }
+.login-page { min-height: 100vh; display: grid; place-items: center; background: var(--bg); padding: 24px; }.login-card { width: min(100%, 400px); padding: 34px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); }.login-back { margin: -8px -8px 20px; }.login-logo { margin-bottom: 16px; }.login-card h1 { font-size: 24px; }.login-card > p { color: var(--muted); font-size: 13px; margin: 6px 0 24px; }.login-card form { display: flex; flex-direction: column; gap: 14px; }.login-card label { font-size: 12px; font-weight: 700; display: flex; flex-direction: column; gap: 6px; }.login-card input { padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); }.login-card form button { justify-content: center; margin-top: 8px; }.login-error { color: var(--danger); background: var(--danger-light); border-radius: var(--radius-sm); padding: 9px; font-size: 12px; }
+@media (max-width: 700px) { .landing-page { padding: 16px 18px 42px; }.landing-hero { margin: 64px auto 45px; }.landing-features, .landing-problem { grid-template-columns: 1fr; }.landing-hero > p { font-size: 15px; }.landing-prompt { text-align: right; border-radius: var(--radius-md); } }
 @media (max-width: 900px) { .cooking-layout { grid-template-columns: 1fr; } .cooking-status-card { position: static; } }
 
 /* AI Engine Badges & Modal */
@@ -425,3 +444,9 @@ button, input, select, textarea {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+.catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.catalog-card { padding: 16px; }
+.catalog-meta { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; color: var(--muted); font-size: 11px; }
+.catalog-meta span { background: var(--surface-2); padding: 4px 7px; border-radius: var(--radius-pill); }
+.catalog-tag { font-size: 10px; color: var(--primary); background: var(--primary-light); padding: 4px 7px; border-radius: var(--radius-pill); }
+.catalog-note { margin-top: 12px; font-size: 10.5px; line-height: 1.6; color: var(--apricot); }

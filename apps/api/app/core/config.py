@@ -14,8 +14,9 @@ class Settings(BaseModel):
 
     # Google Gemini AI Configuration (Default)
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    # A safe first-run fallback. Once a key is connected, the app reads the
+    # account's live model list and selects the newest compatible Flash model.
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     ai_provider: str = os.getenv("AI_PROVIDER", "gemini")  # 'gemini', 'ollama', 'auto'
 
 settings = Settings()
-

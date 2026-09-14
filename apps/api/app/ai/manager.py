@@ -86,19 +86,32 @@ class AIManager:
         )
 
     async def update_config(self, update: AiConfigUpdate) -> Dict[str, Any]:
-        """Update runtime AI configurations."""
-        if update.gemini_api_key is not None:
-            settings.gemini_api_key = update.gemini_api_key.strip()
-        if update.gemini_model is not None:
-            settings.gemini_model = update.gemini_model.strip()
+        """Connect and import the allowed model list before choosing a model."""
+        candidate_key = (update.gemini_api_key or settings.gemini_api_key).strip()
+        imported_models: list[str] = []
+        recommended_model = ""
+        if candidate_key:
+            live = await gemini_service.fetch_available_models(candidate_key)
+            if not live.get("success") or not live.get("models"):
+                return {"success": False, "message": live.get("error", "اتصال Gemini برقرار نشد؛ تنظیمات تغییر نکرد."), "status": await self.get_status()}
+            imported_models = [model["id"] for model in live["models"]]
+            recommended_model = live.get("recommended_model", "")
+            settings.gemini_api_key = candidate_key
+
+        requested_model = (update.gemini_model or settings.gemini_model).strip()
+        if imported_models:
+            settings.gemini_model = requested_model if requested_model in imported_models else recommended_model
+        elif update.gemini_model is not None:
+            settings.gemini_model = requested_model
         if update.ai_provider is not None:
             settings.ai_provider = update.ai_provider.strip().lower()
 
         status = await self.get_status()
         return {
             "success": True,
-            "message": "تنظیمات هوش مصنوعی با موفقیت بروزرسانی شد.",
-            "status": status
+            "message": "اتصال Gemini بررسی شد، مدل‌های مجاز خوانده شدند و مدل سازگار انتخاب شد.",
+            "status": status,
+            "selected_model": settings.gemini_model,
         }
 
     async def test_gemini_connection(self, api_key: Optional[str] = None) -> Dict[str, Any]:

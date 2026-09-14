@@ -69,6 +69,13 @@ export interface Recipe {
   steps: string[];
 }
 
+export interface RecipeCatalogItem {
+  recipe_id: string; title_fa: string; title_en: string; category: string; region: string;
+  main_protein: string; base: string; prep_min: number; cook_min: number; total_min: number;
+  cost_tier: string; health_tags: string[]; allergens_or_notes: string;
+  medical_caution: string; occasion: string; ingredient_keywords: string[]; quick_variation: string;
+}
+
 export interface RecommendationResponse {
   timestamp: string;
   top_recipe: Recipe;
@@ -197,4 +204,3 @@ export interface GeminiModelsResponse {
   message?: string;
   error?: string;
 }
-

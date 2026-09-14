@@ -21,7 +21,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onClose, on
   const [aiStatus, setAiStatus] = useState<AiStatusResponse | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [activeProvider, setActiveProvider] = useState<string>('gemini');
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-3.6-flash');
   const [modelsList, setModelsList] = useState<GeminiModelInfo[]>([]);
   const [isSyncingModels, setIsSyncingModels] = useState(false);
   const [isTestingKey, setIsTestingKey] = useState(false);
@@ -47,7 +47,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser, onClose, on
       const status = await api.getAiStatus();
       setAiStatus(status);
       setActiveProvider(status.active_provider || 'gemini');
-      setSelectedModel(status.gemini_model || 'gemini-2.5-flash');
+      setSelectedModel(status.gemini_model || 'gemini-3.6-flash');
 
       // Fetch models
       const modelsRes = await api.getGeminiModels();
