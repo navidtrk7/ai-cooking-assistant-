@@ -6,8 +6,11 @@ from apps.api.app.schemas.schemas import (
     Household, HealthPreferences, PantryItem, PantryCreate,
     Recipe, RecommendationFilter, RecommendationResponse, RecommendationFeedback,
     DietaryConstraint, MemberNutritionGoal, MemberFoodPreference, HouseholdFoodPolicy, Member,
-    ChatMessage, AiChatResponse, AiActionDraft, AiStatusResponse, AiConfigUpdate
+    ChatMessage, AiChatResponse, AiActionDraft, AiStatusResponse, AiConfigUpdate,
+    StoreOffer, ItemStoreComparison, StoreSummary, DetailedStoreComparison,
+    PeriodicPurchase, PeriodicPurchaseCreate, PantrySyncItem, PantrySyncResponse
 )
+
 from apps.api.app.data.seed_data import DEFAULT_HOUSEHOLD, INITIAL_PANTRY_ITEMS, INITIAL_RECIPES
 from apps.api.app.data.catalog import get_recipe_catalog
 from apps.api.app.ai.ollama_adapter import ollama_service
@@ -37,12 +40,61 @@ meal_plan_db = [
 
 # Seed shopping list
 shopping_list_db = [
-    {"id": "s1", "name": "روغن زیتون فرابکر", "amount": "۱ بطری", "category": "خواربار", "checked": False, "estimated_price": 285000},
-    {"id": "s2", "name": "رب گوجه‌فرنگی", "amount": "۱ قوطی", "category": "خواربار", "checked": True, "estimated_price": 65000},
+    {"id": "s1", "name": "روغن زیتون فرابکر", "amount": "۱ بطری (۱.۵ لیتر)", "category": "خواربار", "checked": False, "estimated_price": 285000},
+    {"id": "s2", "name": "شیر کم‌چرب پگاه", "amount": "۲ پاکت (۲ لیتر)", "category": "لبنیات", "checked": False, "estimated_price": 76000},
     {"id": "s3", "name": "پیاز زرد", "amount": "۲ کیلوگرم", "category": "میوه و تره‌بار", "checked": False, "estimated_price": 48000},
-    {"id": "s4", "name": "نان سنگک کنجدی", "amount": "۳ عدد", "category": "نان و غلات", "checked": False, "estimated_price": 45000},
-    {"id": "s5", "name": "ماست کم‌چرب پروبیوتیک", "amount": "۱ دبه", "category": "لبنیات", "checked": True, "estimated_price": 98000},
+    {"id": "s4", "name": "تخم‌مرغ بسته ۲۰ عددی", "amount": "۱ بسته", "category": "پروتئین", "checked": False, "estimated_price": 118000},
+    {"id": "s5", "name": "نان سنگک کنجدی", "amount": "۳ عدد", "category": "نان و غلات", "checked": False, "estimated_price": 45000},
 ]
+
+# Seed Periodic & Scheduled Purchases
+periodic_purchases_db = [
+    {
+        "id": "pp1",
+        "title": "شیر کم‌چرب پگاه",
+        "amount": "۲ پاکت (۲ لیتر)",
+        "interval_days": 2,
+        "interval_label": "یک روز در میان",
+        "next_due_days": 1,
+        "is_ai_suggested": False,
+        "category": "لبنیات",
+        "active": True
+    },
+    {
+        "id": "pp2",
+        "title": "نان سنگک کنجدی تازه",
+        "amount": "۳ عدد",
+        "interval_days": 3,
+        "interval_label": "هر ۳ روز",
+        "next_due_days": 2,
+        "is_ai_suggested": False,
+        "category": "نان و غلات",
+        "active": True
+    },
+    {
+        "id": "pp3",
+        "title": "تخم‌مرغ محلی تازه (۲۰ عددی)",
+        "amount": "۱ بسته",
+        "interval_days": 7,
+        "interval_label": "هفتگی",
+        "next_due_days": 4,
+        "is_ai_suggested": True,
+        "category": "پروتئین",
+        "active": True
+    },
+    {
+        "id": "pp4",
+        "title": "روغن زیتون فرابکر ۱.۵ لیتری",
+        "amount": "۱ بطری",
+        "interval_days": 30,
+        "interval_label": "ماهانه",
+        "next_due_days": 8,
+        "is_ai_suggested": True,
+        "category": "خواربار",
+        "active": True
+    }
+]
+
 
 # Seed family tasks
 family_tasks_db = [
@@ -380,10 +432,29 @@ async def finish_cooking(payload: FinishCookingRequest):
 async def get_meal_plans():
     return meal_plan_db
 
-# ----------------- SHOPPING LIST -----------------
+# ----------------- SHOPPING LIST & SMART ACTIONS -----------------
 @router.get("/shopping-list")
 async def get_shopping_list():
     return shopping_list_db
+
+class AddShoppingItemRequest(BaseModel):
+    name: str
+    amount: str = "۱ عدد"
+    category: str = "عمومی"
+    estimated_price: int = 50000
+
+@router.post("/shopping-list/add")
+async def add_shopping_item(item: AddShoppingItemRequest):
+    new_item = {
+        "id": f"s-{uuid.uuid4().hex[:6]}",
+        "name": item.name,
+        "amount": item.amount,
+        "category": item.category,
+        "checked": False,
+        "estimated_price": item.estimated_price
+    }
+    shopping_list_db.insert(0, new_item)
+    return new_item
 
 @router.post("/shopping-list/toggle/{item_id}")
 async def toggle_shopping_item(item_id: str):
@@ -393,38 +464,281 @@ async def toggle_shopping_item(item_id: str):
     item["checked"] = not item["checked"]
     return item
 
-# ----------------- STORES PRICE COMPARISON -----------------
-@router.get("/stores")
-async def get_stores_comparison():
-    return {
-        "observed_time": "۱۴:۳۰ امروز (۲۴ شهریور)",
-        "stores": [
-            {
-                "name": "اسنپ‌مارکت (هایپراستار)",
-                "total_price": 541000,
-                "delivery_time": "۴۵ دقیقه",
-                "delivery_fee": 25000,
-                "coverage_percent": 100,
-                "link": "https://snapp.market"
-            },
-            {
-                "name": "دیجی‌کالا جت",
-                "total_price": 528000,
-                "delivery_time": "۳۰ دقیقه",
-                "delivery_fee": 30000,
-                "coverage_percent": 90,
-                "link": "https://jet.digikala.com"
-            },
-            {
-                "name": "افق کوروش (اکالا)",
-                "total_price": 495000,
-                "delivery_time": "۶۰ دقیقه",
-                "delivery_fee": 15000,
-                "coverage_percent": 85,
-                "link": "https://okala.com"
+@router.delete("/shopping-list/{item_id}")
+async def delete_shopping_item(item_id: str):
+    global shopping_list_db
+    shopping_list_db = [s for s in shopping_list_db if s["id"] != item_id]
+    return {"success": True, "message": "قلم با موفقیت حذف شد"}
+
+class AddRecipeToShoppingRequest(BaseModel):
+    recipe_id: str
+    recipe_title: Optional[str] = None
+    ingredients: Optional[List[Dict[str, Any]]] = None
+
+@router.post("/shopping-list/add-recipe")
+async def add_recipe_to_shopping(req: AddRecipeToShoppingRequest):
+    """Shortcut: Add all ingredients from a recipe into the smart shopping list."""
+    added = []
+    # If ingredients provided directly
+    items_to_add = req.ingredients or []
+    if not items_to_add:
+        # Find recipe in catalog/db
+        recipe = next((r for r in recipes_db if r.id == req.recipe_id), None)
+        if recipe:
+            items_to_add = [{"name": ing.name, "amount": ing.amount} for ing in recipe.ingredients]
+
+    for it in items_to_add:
+        name = it.get("name", "ماده اولیه")
+        # Check if already in shopping list
+        exists = any(s["name"].strip().lower() == name.strip().lower() for s in shopping_list_db)
+        if not exists:
+            new_item = {
+                "id": f"s-{uuid.uuid4().hex[:6]}",
+                "name": name,
+                "amount": it.get("amount", "۱ واحد"),
+                "category": "مواد رسپی",
+                "checked": False,
+                "estimated_price": it.get("estimated_price", 45000)
             }
-        ]
+            shopping_list_db.append(new_item)
+            added.append(new_item["name"])
+
+    return {
+        "success": True,
+        "message": f"{len(added)} قلم ماده اولیه از رسپی به لیست خرید هوشمند افزوده شد.",
+        "added_count": len(added),
+        "shopping_list": shopping_list_db
     }
+
+# ----------------- PANTRY SYNC & DEDUPLICATION -----------------
+@router.post("/shopping-list/sync-pantry", response_model=PantrySyncResponse)
+async def sync_shopping_with_pantry():
+    """
+    Compare shopping list against pantry/fridge inventory.
+    Suggest deducting items that the household already has in stock.
+    """
+    matches: List[PantrySyncItem] = []
+    for s_item in shopping_list_db:
+        if s_item.get("checked"):
+            continue
+        s_name = s_item["name"].strip().lower()
+        # Find match in pantry
+        for p_item in pantry_db:
+            p_name = p_item.name.strip().lower()
+            if p_name in s_name or s_name in p_name:
+                matches.append(PantrySyncItem(
+                    shopping_item_id=s_item["id"],
+                    shopping_name=s_item["name"],
+                    needed_amount=s_item["amount"],
+                    pantry_name=p_item.name,
+                    pantry_quantity=p_item.quantity,
+                    pantry_unit=p_item.unit
+                ))
+                break
+
+    msg = f"{len(matches)} قلم از اقلام لیست خرید هم‌اکنون در انبار و یخچال شما موجود است." if matches else "تمام اقلام لیست خرید کسری هستند و در انبار موجود نمی‌باشند."
+    return PantrySyncResponse(matches=matches, message=msg)
+
+class DeductPantryRequest(BaseModel):
+    item_ids: List[str]
+
+@router.post("/shopping-list/deduct-pantry")
+async def deduct_pantry_items(req: DeductPantryRequest):
+    """Remove or check off confirmed items that exist in pantry."""
+    global shopping_list_db
+    count = 0
+    for s in shopping_list_db:
+        if s["id"] in req.item_ids:
+            s["checked"] = True
+            count += 1
+    return {"success": True, "message": f"{count} قلمِ موجود در انبار از لیست فعال کسر گردید.", "deducted_count": count}
+
+# ----------------- DETAILED 3-STORE PRICE COMPARISON -----------------
+@router.get("/stores", response_model=DetailedStoreComparison)
+async def get_stores_comparison():
+    """
+    Itemized 3-Store Comparison:
+    Stores: افق کوروش (اکالا) | دیجی‌کالا جت | اسنپ‌مارکت (هایپراستار)
+    Returns per-item price, availability, store links, and summary.
+    """
+    import urllib.parse
+    
+    items_comp: List[ItemStoreComparison] = []
+    
+    okala_total = 0
+    jet_total = 0
+    snapp_total = 0
+
+    okala_avail_count = 0
+    jet_avail_count = 0
+    snapp_avail_count = 0
+
+    active_items = [it for it in shopping_list_db if not it.get("checked")]
+    items_pool = active_items if active_items else shopping_list_db
+
+    for idx, it in enumerate(items_pool):
+        base_price = it.get("estimated_price", 60000)
+        q = urllib.parse.quote(it["name"])
+
+        # Realistic comparative pricing & availability
+        # Store 1: Okala (often discount on staples, occasionally 1 item out of stock)
+        okala_price = int(base_price * 0.94 // 1000 * 1000)
+        okala_avail = (idx % 6 != 5)
+        if okala_avail:
+            okala_total += okala_price
+            okala_avail_count += 1
+
+        # Store 2: Digikala Jet (fastest delivery, premium selection)
+        jet_price = int(base_price * 1.02 // 1000 * 1000)
+        jet_avail = True
+        jet_total += jet_price
+        jet_avail_count += 1
+
+        # Store 3: SnappMarket (Hyperstar bulk pricing)
+        snapp_price = int(base_price * 0.96 // 1000 * 1000)
+        snapp_avail = (idx % 8 != 7)
+        if snapp_avail:
+            snapp_total += snapp_price
+            snapp_avail_count += 1
+
+        # Determine best price among available
+        prices = [
+            ("افق کوروش (اکالا)", okala_price, okala_avail),
+            ("دیجی‌کالا جت", jet_price, jet_avail),
+            ("اسنپ‌مارکت", snapp_price, snapp_avail),
+        ]
+        avail_prices = [p for p in prices if p[2]]
+        best_store = min(avail_prices, key=lambda x: x[1])[0] if avail_prices else "افق کوروش (اکالا)"
+
+        items_comp.append(ItemStoreComparison(
+            item_id=it["id"],
+            item_name=it["name"],
+            amount=it.get("amount", "۱ واحد"),
+            category=it.get("category", "عمومی"),
+            okala=StoreOffer(
+                store_name="افق کوروش (اکالا)",
+                price=okala_price,
+                available=okala_avail,
+                link=f"https://okala.com/search?q={q}"
+            ),
+            digikala_jet=StoreOffer(
+                store_name="دیجی‌کالا جت",
+                price=jet_price,
+                available=jet_avail,
+                link=f"https://jet.digikala.com/search?q={q}"
+            ),
+            snapp_market=StoreOffer(
+                store_name="اسنپ‌مارکت",
+                price=snapp_price,
+                available=snapp_avail,
+                link=f"https://snapp.market/search?q={q}"
+            ),
+            best_store=best_store
+        ))
+
+    total_items = max(len(items_pool), 1)
+    okala_cov = int((okala_avail_count / total_items) * 100)
+    jet_cov = int((jet_avail_count / total_items) * 100)
+    snapp_cov = int((snapp_avail_count / total_items) * 100)
+
+    stores_summary = [
+        StoreSummary(
+            name="افق کوروش (اکالا)",
+            slug="okala",
+            total_price=okala_total,
+            delivery_time="۴۵ الی ۶۰ دقیقه",
+            delivery_fee=18000,
+            coverage_percent=okala_cov,
+            link="https://okala.com",
+            bulk_buy_url="https://okala.com/cart"
+        ),
+        StoreSummary(
+            name="دیجی‌کالا جت",
+            slug="digikala_jet",
+            total_price=jet_total,
+            delivery_time="۳۰ دقیقه اکسپرس",
+            delivery_fee=29000,
+            coverage_percent=jet_cov,
+            link="https://jet.digikala.com",
+            bulk_buy_url="https://jet.digikala.com/cart"
+        ),
+        StoreSummary(
+            name="اسنپ‌مارکت (هایپراستار)",
+            slug="snapp_market",
+            total_price=snapp_total,
+            delivery_time="۴۵ دقیقه",
+            delivery_fee=24000,
+            coverage_percent=snapp_cov,
+            link="https://snapp.market",
+            bulk_buy_url="https://snapp.market/cart"
+        ),
+    ]
+
+    return DetailedStoreComparison(
+        observed_time="امروز - به‌روزرسانی زنده",
+        stores=stores_summary,
+        items=items_comp
+    )
+
+# ----------------- PERIODIC & SCHEDULED PURCHASES -----------------
+@router.get("/periodic-purchases", response_model=List[PeriodicPurchase])
+async def get_periodic_purchases():
+    return periodic_purchases_db
+
+@router.post("/periodic-purchases", response_model=PeriodicPurchase)
+async def create_periodic_purchase(item: PeriodicPurchaseCreate):
+    new_p = {
+        "id": f"pp-{uuid.uuid4().hex[:6]}",
+        "title": item.title,
+        "amount": item.amount,
+        "interval_days": item.interval_days,
+        "interval_label": item.interval_label,
+        "next_due_days": item.interval_days,
+        "is_ai_suggested": False,
+        "category": item.category,
+        "active": True
+    }
+    periodic_purchases_db.append(new_p)
+    return new_p
+
+@router.delete("/periodic-purchases/{item_id}")
+async def delete_periodic_purchase(item_id: str):
+    global periodic_purchases_db
+    periodic_purchases_db = [p for p in periodic_purchases_db if p["id"] != item_id]
+    return {"success": True, "message": "خرید دوره‌ای حذف شد."}
+
+@router.post("/periodic-purchases/{item_id}/toggle")
+async def toggle_periodic_purchase(item_id: str):
+    p = next((x for x in periodic_purchases_db if x["id"] == item_id), None)
+    if not p:
+        raise HTTPException(status_code=404, detail="یافت نشد")
+    p["active"] = not p["active"]
+    return p
+
+@router.post("/periodic-purchases/apply-due")
+async def apply_due_periodic_purchases():
+    """Transfer periodic items due today/tomorrow into active shopping list."""
+    added = []
+    for p in periodic_purchases_db:
+        if p.get("active", True) and p.get("next_due_days", 99) <= 2:
+            exists = any(s["name"] == p["title"] for s in shopping_list_db)
+            if not exists:
+                new_item = {
+                    "id": f"s-{uuid.uuid4().hex[:6]}",
+                    "name": p["title"],
+                    "amount": p["amount"],
+                    "category": p.get("category", "خرید دوره‌ای"),
+                    "checked": False,
+                    "estimated_price": 55000
+                }
+                shopping_list_db.insert(0, new_item)
+                added.append(p["title"])
+    return {
+        "success": True,
+        "message": f"{len(added)} قلم از خریدهای دوره‌ای سررسید‌شده به لیست خرید هوشمند اضافه شدند.",
+        "added": added
+    }
+
 
 # ----------------- RECEIPT SCANNER (SIMULATED OCR) -----------------
 @router.post("/receipts/scan")

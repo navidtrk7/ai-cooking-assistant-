@@ -225,19 +225,62 @@ export interface ShoppingItem {
   estimated_price: number;
 }
 
+export interface StoreOffer {
+  store_name: string;
+  price: number;
+  available: boolean;
+  link: string;
+}
+
+export interface ItemStoreComparison {
+  item_id: string;
+  item_name: string;
+  amount: string;
+  category: string;
+  okala: StoreOffer;
+  digikala_jet: StoreOffer;
+  snapp_market: StoreOffer;
+  best_store: string;
+}
+
 export interface StoreInfo {
   name: string;
+  slug?: string;
   total_price: number;
   delivery_time: string;
   delivery_fee: number;
   coverage_percent: number;
   link: string;
+  bulk_buy_url?: string;
 }
 
 export interface StoreComparison {
   observed_time: string;
   stores: StoreInfo[];
+  items?: ItemStoreComparison[];
 }
+
+export interface PeriodicPurchase {
+  id: string;
+  title: string;
+  amount: string;
+  interval_days: number;
+  interval_label: string;
+  next_due_days: number;
+  is_ai_suggested: boolean;
+  category: string;
+  active: boolean;
+}
+
+export interface PantrySyncItem {
+  shopping_item_id: string;
+  shopping_name: string;
+  needed_amount: string;
+  pantry_name: string;
+  pantry_quantity: number;
+  pantry_unit: string;
+}
+
 
 export interface ReceiptItem {
   id: string;

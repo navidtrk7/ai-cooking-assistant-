@@ -450,3 +450,130 @@ button, input, select, textarea {
 .catalog-meta span { background: var(--surface-2); padding: 4px 7px; border-radius: var(--radius-pill); }
 .catalog-tag { font-size: 10px; color: var(--primary); background: var(--primary-light); padding: 4px 7px; border-radius: var(--radius-pill); }
 .catalog-note { margin-top: 12px; font-size: 10.5px; line-height: 1.6; color: var(--apricot); }
+
+/* Smart Shopping Hub & Store Comparison */
+.shopping-hub-nav {
+  display: flex;
+  gap: 8px;
+  background: var(--surface);
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  width: fit-content;
+  flex-wrap: wrap;
+}
+.shopping-hub-btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+.shopping-hub-btn.active {
+  background: var(--primary);
+  color: #FFF;
+  box-shadow: var(--shadow-sm);
+}
+.shopping-hub-btn:hover:not(.active) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.sync-banner {
+  background: linear-gradient(135deg, var(--primary-light), var(--surface-2));
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: fadeIn 0.25s ease;
+}
+
+.store-comp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.store-comp-table th {
+  background: var(--surface-3);
+  padding: 12px 14px;
+  text-align: right;
+  font-weight: 800;
+  border-bottom: 2px solid var(--border-2);
+}
+.store-comp-table td {
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.store-comp-table tr:hover td {
+  background: var(--surface-2);
+}
+
+.best-price-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  margin-top: 3px;
+}
+
+.store-linkout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+.store-linkout-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.bulk-buy-card {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.bulk-buy-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 768px) {
+  .store-comp-table-container {
+    overflow-x: auto;
+  }
+  .store-comp-table {
+    min-width: 650px;
+  }
+}
+

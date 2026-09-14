@@ -1,8 +1,10 @@
 import type { 
   Household, PantryItem, RecommendationResponse, AiChatResponse, 
   AiActionDraft, MealPlanDay, ShoppingItem, StoreComparison, 
-  ReceiptScan, FamilyTask, AiStatusResponse, GeminiModelInfo, RecipeCatalogItem, Recipe 
+  ReceiptScan, FamilyTask, AiStatusResponse, GeminiModelInfo, RecipeCatalogItem, Recipe,
+  PeriodicPurchase, PantrySyncItem 
 } from '../types';
+
 
 
 const API_BASE_URL = 'http://localhost:8200/api/v1';
@@ -104,9 +106,51 @@ export const api = {
     return res.json();
   },
 
+  async addShoppingItem(name: string, amount = '۱ عدد', category = 'عمومی', estimated_price = 50000): Promise<ShoppingItem> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, amount, category, estimated_price }),
+    });
+    if (!res.ok) throw new Error('خطا در افزودن قلم به لیست خرید');
+    return res.json();
+  },
+
+  async deleteShoppingItem(itemId: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/${itemId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('خطا در حذف قلم');
+    return res.json();
+  },
+
   async toggleShoppingItem(itemId: string): Promise<ShoppingItem> {
     const res = await fetch(`${API_BASE_URL}/shopping-list/toggle/${itemId}`, { method: 'POST' });
     if (!res.ok) throw new Error('خطا در تغییر وضعیت قلم خرید');
+    return res.json();
+  },
+
+  async addRecipeToShopping(recipeId: string, recipeTitle?: string, ingredients?: any[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/add-recipe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipe_id: recipeId, recipe_title: recipeTitle, ingredients }),
+    });
+    if (!res.ok) throw new Error('خطا در افزودن مواد رسپی به لیست خرید');
+    return res.json();
+  },
+
+  async syncShoppingWithPantry(): Promise<{ matches: PantrySyncItem[]; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/sync-pantry`, { method: 'POST' });
+    if (!res.ok) throw new Error('خطا در همگام‌سازی با موجودی انبار');
+    return res.json();
+  },
+
+  async deductPantryItems(itemIds: string[]): Promise<{ success: boolean; message: string; deducted_count: number }> {
+    const res = await fetch(`${API_BASE_URL}/shopping-list/deduct-pantry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds }),
+    });
+    if (!res.ok) throw new Error('خطا در کسر اقلام موجود از لیست خرید');
     return res.json();
   },
 
@@ -115,6 +159,41 @@ export const api = {
     if (!res.ok) throw new Error('خطا در دریافت مقایسه فروشگاه‌ها');
     return res.json();
   },
+
+  async getPeriodicPurchases(): Promise<PeriodicPurchase[]> {
+    const res = await fetch(`${API_BASE_URL}/periodic-purchases`);
+    if (!res.ok) throw new Error('خطا در دریافت خریدهای دوره‌ای');
+    return res.json();
+  },
+
+  async createPeriodicPurchase(item: { title: string; amount: string; interval_days: number; interval_label: string; category?: string }): Promise<PeriodicPurchase> {
+    const res = await fetch(`${API_BASE_URL}/periodic-purchases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+    if (!res.ok) throw new Error('خطا در ایجاد خرید دوره‌ای');
+    return res.json();
+  },
+
+  async deletePeriodicPurchase(itemId: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/periodic-purchases/${itemId}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('خطا در حذف خرید دوره‌ای');
+    return res.json();
+  },
+
+  async togglePeriodicPurchase(itemId: string): Promise<PeriodicPurchase> {
+    const res = await fetch(`${API_BASE_URL}/periodic-purchases/${itemId}/toggle`, { method: 'POST' });
+    if (!res.ok) throw new Error('خطا در تغییر وضعیت خرید دوره‌ای');
+    return res.json();
+  },
+
+  async applyDuePeriodicPurchases(): Promise<{ success: boolean; message: string; added: string[] }> {
+    const res = await fetch(`${API_BASE_URL}/periodic-purchases/apply-due`, { method: 'POST' });
+    if (!res.ok) throw new Error('خطا در انتقال اقلام سررسید‌شده به لیست خرید');
+    return res.json();
+  },
+
 
   async scanReceipt(): Promise<ReceiptScan> {
     const res = await fetch(`${API_BASE_URL}/receipts/scan`, { method: 'POST' });

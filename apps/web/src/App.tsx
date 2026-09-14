@@ -6,14 +6,16 @@ import {
   Check, Plus, Trash2, X, ShoppingCart, Store, Users, 
   BarChart3, Camera, CheckSquare, ArrowUpRight, Flame, 
   Heart, Award, Menu, Music, Volume2, Key, Cpu, Sliders, ExternalLink,
-  ShieldCheck, UserCheck
+  ShieldCheck, UserCheck, RefreshCw, Repeat
 } from 'lucide-react';
 import { api } from './services/api';
 import type { 
   PantryItem, Recipe, RecommendationResponse, ChatMessage, 
   MealPlanDay, ShoppingItem, StoreComparison, ReceiptScan, FamilyTask,
-  AiStatusResponse, User, GeminiModelInfo, RecipeCatalogItem, Household
+  AiStatusResponse, User, GeminiModelInfo, RecipeCatalogItem, Household,
+  PeriodicPurchase, PantrySyncItem
 } from './types';
+
 import { AuthModal } from './components/auth/AuthModal';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { LandingPage } from './components/public/LandingPage';
@@ -125,11 +127,29 @@ export function App() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  // Smart Shopping & Stores & Periodic State
+  const [shoppingSubTab, setShoppingSubTab] = useState<'items' | 'stores' | 'periodic'>('items');
+  const [periodicPurchases, setPeriodicPurchases] = useState<PeriodicPurchase[]>([]);
+  const [pantrySyncMatches, setPantrySyncMatches] = useState<PantrySyncItem[]>([]);
+  const [showPantrySyncModal, setShowPantrySyncModal] = useState<boolean>(false);
+  const [syncDeducting, setSyncDeducting] = useState<boolean>(false);
+  const [newShoppingName, setNewShoppingName] = useState<string>('');
+  const [newShoppingAmount, setNewShoppingAmount] = useState<string>('۱ عدد');
+  const [newPeriodicTitle, setNewPeriodicTitle] = useState<string>('');
+  const [newPeriodicAmount, setNewPeriodicAmount] = useState<string>('۱ بسته');
+  const [newPeriodicInterval, setNewPeriodicInterval] = useState<number>(2);
+  const [newPeriodicLabel, setNewPeriodicLabel] = useState<string>('یک روز در میان');
+
   // Sync hash routing
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.replace(/^#\/?/, '').trim();
-      if (hash) setCurrentView(hash);
+      if (hash === 'stores') {
+        setCurrentView('shopping');
+        setShoppingSubTab('stores');
+      } else if (hash) {
+        setCurrentView(hash);
+      }
     };
     handleHash();
     window.addEventListener('hashchange', handleHash);
@@ -137,11 +157,18 @@ export function App() {
   }, []);
 
   const navigate = (view: string) => {
-    setCurrentView(view);
-    window.location.hash = view;
+    if (view === 'stores') {
+      setCurrentView('shopping');
+      setShoppingSubTab('stores');
+      window.location.hash = 'shopping';
+    } else {
+      setCurrentView(view);
+      window.location.hash = view;
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
     setMobileNavOpen(false);
   };
+
 
   // Clock updater
   useEffect(() => {
@@ -173,14 +200,15 @@ export function App() {
           setGeminiModelInput(st.gemini_model || 'gemini-3.6-flash');
         }).catch(() => {});
 
-        const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes, householdRes] = await Promise.all([
+        const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes, householdRes, periodicRes] = await Promise.all([
           api.getPantry().catch(() => []),
           api.getRecommendations().catch(() => null),
           api.getMealPlans().catch(() => []),
           api.getShoppingList().catch(() => []),
           api.getStoresComparison().catch(() => null),
           api.getFamilyTasks().catch(() => []),
-          api.getHousehold().catch(() => null)
+          api.getHousehold().catch(() => null),
+          api.getPeriodicPurchases().catch(() => [])
         ]);
 
         setPantry(pantryRes);
@@ -191,6 +219,8 @@ export function App() {
         setStoresData(storesRes);
         setFamilyTasks(tasksRes);
         if (householdRes) setHousehold(householdRes);
+        if (periodicRes) setPeriodicPurchases(periodicRes);
+
         api.getRecipeCatalog().then(result => setRecipeCatalog(result.items)).catch(() => undefined);
       } catch (err) {
         console.error('Failed to load initial data:', err);
@@ -524,6 +554,140 @@ export function App() {
     }
   };
 
+  // Recipe to Smart Shopping Shortcut
+  const handleAddRecipeIngredientsToShopping = async (recipe: Recipe) => {
+    try {
+      const res = await api.addRecipeToShopping(recipe.id, recipe.title, recipe.ingredients);
+      const updatedList = await api.getShoppingList();
+      setShoppingList(updatedList);
+      const updatedStores = await api.getStoresComparison();
+      setStoresData(updatedStores);
+      showToast(res.message || `مواد اولیه «${recipe.title}» به لیست خرید اضافه شد.`);
+      setShoppingSubTab('items');
+      navigate('shopping');
+    } catch {
+      showToast('خطا در افزودن مواد رسپی به لیست خرید');
+    }
+  };
+
+  // Pantry Sync Handlers
+  const handleSyncPantry = async () => {
+    try {
+      const res = await api.syncShoppingWithPantry();
+      setPantrySyncMatches(res.matches);
+      if (res.matches.length > 0) {
+        setShowPantrySyncModal(true);
+      } else {
+        showToast('تمام اقلام لیست خرید کسری هستند و در انبار موجود نمی‌باشند.');
+      }
+    } catch {
+      showToast('خطا در همگام‌سازی با انبار');
+    }
+  };
+
+  const handleConfirmPantryDeduct = async () => {
+    if (pantrySyncMatches.length === 0) return;
+    setSyncDeducting(true);
+    try {
+      const ids = pantrySyncMatches.map(m => m.shopping_item_id);
+      const res = await api.deductPantryItems(ids);
+      const updatedList = await api.getShoppingList();
+      setShoppingList(updatedList);
+      const updatedStores = await api.getStoresComparison();
+      setStoresData(updatedStores);
+      showToast(res.message);
+      setShowPantrySyncModal(false);
+      setPantrySyncMatches([]);
+    } catch {
+      showToast('خطا در کسر اقلام موجود از لیست خرید');
+    } finally {
+      setSyncDeducting(false);
+    }
+  };
+
+  // Shopping Items Handlers
+  const handleAddNewShoppingItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newShoppingName.trim()) return;
+    try {
+      const added = await api.addShoppingItem(newShoppingName.trim(), newShoppingAmount.trim() || '۱ واحد');
+      setShoppingList(prev => [added, ...prev]);
+      setNewShoppingName('');
+      setNewShoppingAmount('۱ عدد');
+      const updatedStores = await api.getStoresComparison();
+      setStoresData(updatedStores);
+      showToast(`«${added.name}» به لیست خرید اضافه شد.`);
+    } catch {
+      showToast('خطا در افزودن قلم');
+    }
+  };
+
+  const handleDeleteShoppingItem = async (id: string, name: string) => {
+    try {
+      await api.deleteShoppingItem(id);
+      setShoppingList(prev => prev.filter(s => s.id !== id));
+      const updatedStores = await api.getStoresComparison();
+      setStoresData(updatedStores);
+      showToast(`«${name}» از لیست خرید حذف شد.`);
+    } catch {
+      showToast('خطا در حذف قلم');
+    }
+  };
+
+  // Periodic Purchases Handlers
+  const handleCreatePeriodic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPeriodicTitle.trim()) return;
+    try {
+      const created = await api.createPeriodicPurchase({
+        title: newPeriodicTitle.trim(),
+        amount: newPeriodicAmount.trim() || '۱ واحد',
+        interval_days: newPeriodicInterval,
+        interval_label: newPeriodicLabel
+      });
+      setPeriodicPurchases(prev => [...prev, created]);
+      setNewPeriodicTitle('');
+      setNewPeriodicAmount('۱ بسته');
+      showToast(`خرید دوره‌ای «${created.title}» ایجاد شد.`);
+    } catch {
+      showToast('خطا در ایجاد خرید دوره‌ای');
+    }
+  };
+
+  const handleDeletePeriodic = async (id: string, title: string) => {
+    try {
+      await api.deletePeriodicPurchase(id);
+      setPeriodicPurchases(prev => prev.filter(p => p.id !== id));
+      showToast(`«${title}» از خریدهای دوره‌ای حذف شد.`);
+    } catch {
+      showToast('خطا در حذف خرید دوره‌ای');
+    }
+  };
+
+  const handleTogglePeriodic = async (id: string) => {
+    try {
+      const updated = await api.togglePeriodicPurchase(id);
+      setPeriodicPurchases(prev => prev.map(p => p.id === id ? updated : p));
+      showToast(`وضعیت «${updated.title}» بروز شد.`);
+    } catch {
+      showToast('خطا در تغییر وضعیت');
+    }
+  };
+
+  const handleApplyDuePeriodic = async () => {
+    try {
+      const res = await api.applyDuePeriodicPurchases();
+      const updatedList = await api.getShoppingList();
+      setShoppingList(updatedList);
+      const updatedStores = await api.getStoresComparison();
+      setStoresData(updatedStores);
+      showToast(res.message);
+    } catch {
+      showToast('خطا در انتقال اقلام سررسید‌شده');
+    }
+  };
+
+
   const navItems = [
     { id: 'home', label: 'داشبورد خانه', icon: Home },
     ...(currentUser?.role === 'super_admin' ? [
@@ -538,8 +702,8 @@ export function App() {
     { id: 'pantry', label: 'انبار و موجودی یخچال', icon: Package },
     { id: 'receipt', label: 'ثبت و اسکن فاکتور', icon: Camera },
     { id: 'shopping', label: 'لیست خرید هوشمند', icon: ShoppingCart },
-    { id: 'stores', label: 'مقایسه فروشگاه‌ها', icon: Store },
     { id: 'family', label: 'خانواده و تقسیم وظایف', icon: Users },
+
     { id: 'reports', label: 'گزارش‌ها و تحلیل بودجه', icon: BarChart3 },
     { id: 'settings', label: 'تنظیمات و سلامت', icon: Settings },
     { id: 'onboarding', label: 'مسیر آشنایی و ورود', icon: Heart },
@@ -1565,10 +1729,21 @@ export function App() {
 
               {/* Ingredients Checklist */}
               <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 700 }}>مواد اولیه (متناسب با {servingsCount} نفر):</h3>
-                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>تطابق با موجودی خانه</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <h3 style={{ fontSize: 15, fontWeight: 700 }}>مواد اولیه (متناسب با {servingsCount} نفر):</h3>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>تطابق هوشمند با موجودی خانه</span>
+                  </div>
+                  <button 
+                    className="btn btn-primary btn-sm"
+                    onClick={() => handleAddRecipeIngredientsToShopping(selectedRecipe)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, padding: '8px 14px' }}
+                  >
+                    <ShoppingCart size={15} />
+                    🛒 خرید هوشمند مواد اولیه این رسپی
+                  </button>
                 </div>
+
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
                   {selectedRecipe.ingredients.map((ing, idx) => (
@@ -1983,112 +2158,505 @@ export function App() {
           )}
 
           {/* ════════════════════════════════════════════════════
-              9. VIEW: SMART SHOPPING LIST (سفر ۳)
+              9. VIEW: SMART SHOPPING HUB (یکپارچه‌سازی کامل)
              ════════════════════════════════════════════════════ */}
           {currentView === 'shopping' && (
-            <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ maxWidth: 880, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+              
+              {/* Hub Header & Sub-tabs */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
                 <div>
-                  <h1 style={{ fontSize: 22, fontWeight: 800 }}>لیست خرید هوشمند مشترک</h1>
+                  <h1 style={{ fontSize: 24, fontWeight: 800 }}>لیست خرید هوشمند و مقایسه فروشگاه‌ها</h1>
                   <p style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 4 }}>
-                    تجمیع‌شده بر اساس برنامه هفتگی و مواد ناموجود در خانه
+                    مدیریت یکپارچه اقلام، همگام‌سازی با موجودی انبار، مقایسه ۳ ستونه قیمت و خریدهای دوره‌ای
                   </p>
                 </div>
-                <button className="btn btn-primary btn-sm" onClick={() => navigate('stores')}>
-                  <Store size={15} /> مقایسه قیمت فروشگاه‌ها
-                </button>
+
+                {/* Sub-Tabs Switcher */}
+                <div className="shopping-hub-nav">
+                  <button 
+                    className={`shopping-hub-btn ${shoppingSubTab === 'items' ? 'active' : ''}`}
+                    onClick={() => setShoppingSubTab('items')}
+                  >
+                    <ShoppingCart size={15} />
+                    <span>اقلام سبد خرید ({shoppingList.filter(s => !s.checked).length})</span>
+                  </button>
+
+                  <button 
+                    className={`shopping-hub-btn ${shoppingSubTab === 'stores' ? 'active' : ''}`}
+                    onClick={() => setShoppingSubTab('stores')}
+                  >
+                    <Store size={15} />
+                    <span>مقایسه ۳ فروشگاه آنلاین</span>
+                  </button>
+
+                  <button 
+                    className={`shopping-hub-btn ${shoppingSubTab === 'periodic' ? 'active' : ''}`}
+                    onClick={() => setShoppingSubTab('periodic')}
+                  >
+                    <Repeat size={15} />
+                    <span>خریدهای دوره‌ای ({periodicPurchases.length})</span>
+                  </button>
+                </div>
               </div>
 
-              <div className="card">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {shoppingList.map(item => (
-                    <div 
-                      key={item.id}
-                      onClick={() => handleToggleShopping(item.id)}
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        padding: '12px 14px',
-                        background: item.checked ? 'var(--surface-2)' : 'var(--surface)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius-sm)',
-                        cursor: 'pointer',
-                        opacity: item.checked ? 0.6 : 1
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input 
-                          type="checkbox" 
-                          checked={item.checked} 
-                          onChange={() => {}}
-                          style={{ cursor: 'pointer' }}
-                        />
-                        <span style={{
-                          fontSize: 13.5,
-                          fontWeight: 600,
-                          textDecoration: item.checked ? 'line-through' : 'none'
-                        }}>
-                          {item.name} ({item.amount})
+              {/* ══════════ SUB-TAB 1: ITEMS & PANTRY SYNC ══════════ */}
+              {shoppingSubTab === 'items' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  
+                  {/* Pantry Sync Match Banner / Review Dialog */}
+                  {showPantrySyncModal && pantrySyncMatches.length > 0 && (
+                    <div className="sync-banner">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <RefreshCw size={18} color="var(--primary)" />
+                          <strong style={{ fontSize: 14, color: 'var(--primary)' }}>
+                            نتیجه بازبینی با موجودی یخچال و انبار ({pantrySyncMatches.length} قلم تطابق)
+                          </strong>
+                        </div>
+                        <button className="btn btn-ghost" onClick={() => setShowPantrySyncModal(false)} style={{ padding: 4 }}>
+                          <X size={16} />
+                        </button>
+                      </div>
+
+                      <p style={{ fontSize: 12.5, margin: 0, color: 'var(--text-2)' }}>
+                        اقلام زیر در یخچال یا انبار شما موجود هستند. کسر آنها از لیست خرید باعث جلوگیری از اسراف و کاهش هزینه می‌شود:
+                      </p>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 180, overflowY: 'auto' }}>
+                        {pantrySyncMatches.map((m, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+                            <span style={{ fontWeight: 700 }}>{m.shopping_name} (نیاز: {m.needed_amount})</span>
+                            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>موجود در انبار: {m.pantry_quantity} {m.pantry_unit} ({m.pantry_name})</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setShowPantrySyncModal(false)}>
+                          بستن و عدم تغییر
+                        </button>
+                        <button className="btn btn-primary btn-sm" onClick={handleConfirmPantryDeduct} disabled={syncDeducting}>
+                          <Check size={14} />
+                          {syncDeducting ? 'در حال کسر...' : '✓ کسر خودکار اقلام موجود از لیست خرید'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions & Add Item Card */}
+                  <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800 }}>افزودن کالا یا سینک با انبار:</span>
+                      <button 
+                        className="btn btn-secondary btn-sm" 
+                        onClick={handleSyncPantry}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                      >
+                        <RefreshCw size={14} color="var(--primary)" />
+                        🔄 سینک و بازبینی با انبار و یخچال
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleAddNewShoppingItem} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <input 
+                        type="text" 
+                        placeholder="نام کالای مورد نیاز (مثلاً: ماست کم‌چرب، گوشت خورشتی)..."
+                        value={newShoppingName}
+                        onChange={(e) => setNewShoppingName(e.target.value)}
+                        style={{
+                          flex: 2,
+                          padding: '9px 12px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface-2)',
+                          color: 'var(--text)',
+                          fontSize: 13,
+                          minWidth: 180
+                        }}
+                      />
+                      <input 
+                        type="text" 
+                        placeholder="مقدار (مثلاً: ۲ کیلوگرم)"
+                        value={newShoppingAmount}
+                        onChange={(e) => setNewShoppingAmount(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: '9px 12px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--border)',
+                          background: 'var(--surface-2)',
+                          color: 'var(--text)',
+                          fontSize: 13,
+                          minWidth: 100
+                        }}
+                      />
+                      <button type="submit" className="btn btn-primary" style={{ gap: 6 }}>
+                        <Plus size={16} /> افزودن به لیست
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Items Checklist */}
+                  <div className="card">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {shoppingList.map(item => (
+                        <div 
+                          key={item.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 14px',
+                            background: item.checked ? 'var(--surface-2)' : 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--radius-sm)',
+                            opacity: item.checked ? 0.6 : 1,
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <div 
+                            style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1 }}
+                            onClick={() => handleToggleShopping(item.id)}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={item.checked} 
+                              onChange={() => handleToggleShopping(item.id)}
+                              style={{ cursor: 'pointer' }}
+                            />
+                            <div>
+                              <span style={{
+                                fontSize: 13.5,
+                                fontWeight: 600,
+                                textDecoration: item.checked ? 'line-through' : 'none',
+                                color: item.checked ? 'var(--muted)' : 'var(--text)'
+                              }}>
+                                {item.name} ({item.amount})
+                              </span>
+                              <span className="badge badge-secondary" style={{ marginRight: 8, fontSize: 10 }}>
+                                {item.category}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700 }}>
+                              {item.estimated_price.toLocaleString('fa-IR')} ت
+                            </div>
+                            <button 
+                              className="btn btn-ghost" 
+                              style={{ padding: 4, color: 'var(--danger)' }}
+                              onClick={() => handleDeleteShoppingItem(item.id, item.name)}
+                              title="حذف قلم"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 10 }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 700 }}>جمع کل تخمینی: </span>
+                        <span style={{ fontSize: 17, fontWeight: 900, color: 'var(--primary)' }}>
+                          {shoppingList.filter(s => !s.checked).reduce((acc, curr) => acc + curr.estimated_price, 0).toLocaleString('fa-IR')} تومان
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, fontWeight: 700 }}>
-                        {item.estimated_price.toLocaleString('fa-IR')} ت
-                      </div>
+
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => setShoppingSubTab('stores')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                      >
+                        <Store size={15} />
+                        مقایسه قیمت ۳ فروشگاه آنلاین 👈
+                      </button>
                     </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>جمع کل تخمینی:</span>
-                  <span style={{ fontSize: 16, fontWeight: 900, color: 'var(--primary)' }}>
-                    {shoppingList.filter(s => !s.checked).reduce((acc, curr) => acc + curr.estimated_price, 0).toLocaleString('fa-IR')} تومان
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════════════════════════════════════════════
-              10. VIEW: STORES COMPARISON (سفر ۳)
-             ════════════════════════════════════════════════════ */}
-          {currentView === 'stores' && storesData && (
-            <div style={{ maxWidth: 780, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div>
-                <h1 style={{ fontSize: 22, fontWeight: 800 }}>مقایسه قیمت فروشگاه‌های آنلاین</h1>
-                <p style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 4 }}>
-                  بر اساس اقلام کسری سبد خرید • مشاهده‌شده در {storesData.observed_time}
-                </p>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-                {storesData.stores.map((st, i) => (
-                  <div key={i} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                    <div>
-                      <span className="badge badge-success">{st.coverage_percent}٪ موجودی اقلام</span>
-                      <h3 style={{ fontSize: 16, fontWeight: 800, margin: '10px 0 6px' }}>{st.name}</h3>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--primary)', margin: '8px 0' }}>
-                        {st.total_price.toLocaleString('fa-IR')} <span style={{ fontSize: 12 }}>تومان</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        زمان ارسال: {st.delivery_time} • هزینه ارسال: {st.delivery_fee.toLocaleString('fa-IR')} ت
-                      </div>
-                    </div>
-
-                    <a 
-                      href={st.link} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="btn btn-secondary"
-                      style={{ marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                    >
-                      ورود به فروشگاه (Link-out) <ArrowUpRight size={14} />
-                    </a>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
+
+              {/* ══════════ SUB-TAB 2: 3-STORE SIDE-BY-SIDE COMPARISON ══════════ */}
+              {shoppingSubTab === 'stores' && storesData && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  
+                  {/* Stores Top Summary Cards (One-Click Bulk Buy) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 14 }}>
+                    {storesData.stores.map((st, i) => (
+                      <div key={i} className="bulk-buy-card">
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span className="badge badge-success">{st.coverage_percent}٪ موجودی اقلام</span>
+                            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{st.delivery_time}</span>
+                          </div>
+
+                          <h3 style={{ fontSize: 16, fontWeight: 800, margin: '10px 0 4px' }}>{st.name}</h3>
+                          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--primary)', margin: '6px 0' }}>
+                            {st.total_price.toLocaleString('fa-IR')} <span style={{ fontSize: 12 }}>تومان</span>
+                          </div>
+                          <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                            هزینه ارسال: {st.delivery_fee.toLocaleString('fa-IR')} ت
+                          </div>
+                        </div>
+
+                        <a 
+                          href={st.bulk_buy_url || st.link} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="btn btn-primary"
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12 }}
+                        >
+                          خرید گروهی یکدست از {st.name.split(' ')[0]} <ArrowUpRight size={14} />
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Itemized 3-Store Side-by-Side Table */}
+                  <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+                      <h3 style={{ fontSize: 15, fontWeight: 800 }}>جدول مقایسه قیمت تفکیکی اقلام سبد خرید</h3>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
+                        قیمت زنده هر قلم کالا در ۳ فروشگاه آنلاین به همراه لینک مستقیم ورود به محصول
+                      </p>
+                    </div>
+
+                    <div className="store-comp-table-container">
+                      <table className="store-comp-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '28%' }}>کالای مورد نیاز</th>
+                            <th style={{ width: '24%' }}>افق کوروش (اکالا)</th>
+                            <th style={{ width: '24%' }}>دیجی‌کالا جت</th>
+                            <th style={{ width: '24%' }}>اسنپ‌مارکت</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(storesData.items || []).map((row) => (
+                            <tr key={row.item_id}>
+                              <td>
+                                <strong style={{ fontSize: 13, color: 'var(--text)' }}>{row.item_name}</strong>
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{row.amount} • {row.category}</div>
+                              </td>
+
+                              {/* Okala Offer */}
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontWeight: 800, fontSize: 13 }}>
+                                      {row.okala.price.toLocaleString('fa-IR')} ت
+                                    </span>
+                                    {row.best_store === 'افق کوروش (اکالا)' && (
+                                      <span className="best-price-badge">ارزان‌ترین</span>
+                                    )}
+                                  </div>
+                                  <span style={{ fontSize: 10.5, color: row.okala.available ? 'var(--primary)' : 'var(--danger)' }}>
+                                    {row.okala.available ? '✓ موجود در شعبه' : '✕ ناموجود'}
+                                  </span>
+                                  <a href={row.okala.link} target="_blank" rel="noreferrer" className="store-linkout-btn">
+                                    ورود به اکالا <ArrowUpRight size={11} />
+                                  </a>
+                                </div>
+                              </td>
+
+                              {/* Digikala Jet Offer */}
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontWeight: 800, fontSize: 13 }}>
+                                      {row.digikala_jet.price.toLocaleString('fa-IR')} ت
+                                    </span>
+                                    {row.best_store === 'دیجی‌کالا جت' && (
+                                      <span className="best-price-badge">ارزان‌ترین</span>
+                                    )}
+                                  </div>
+                                  <span style={{ fontSize: 10.5, color: row.digikala_jet.available ? 'var(--primary)' : 'var(--danger)' }}>
+                                    {row.digikala_jet.available ? '✓ موجود در جت' : '✕ ناموجود'}
+                                  </span>
+                                  <a href={row.digikala_jet.link} target="_blank" rel="noreferrer" className="store-linkout-btn">
+                                    ورود به جت <ArrowUpRight size={11} />
+                                  </a>
+                                </div>
+                              </td>
+
+                              {/* SnappMarket Offer */}
+                              <td>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontWeight: 800, fontSize: 13 }}>
+                                      {row.snapp_market.price.toLocaleString('fa-IR')} ت
+                                    </span>
+                                    {row.best_store === 'اسنپ‌مارکت' && (
+                                      <span className="best-price-badge">ارزان‌ترین</span>
+                                    )}
+                                  </div>
+                                  <span style={{ fontSize: 10.5, color: row.snapp_market.available ? 'var(--primary)' : 'var(--danger)' }}>
+                                    {row.snapp_market.available ? '✓ موجود هایپراستار' : '✕ ناموجود'}
+                                  </span>
+                                  <a href={row.snapp_market.link} target="_blank" rel="noreferrer" className="store-linkout-btn">
+                                    ورود به اسنپ <ArrowUpRight size={11} />
+                                  </a>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ══════════ SUB-TAB 3: PERIODIC & SCHEDULED PURCHASES ══════════ */}
+              {shoppingSubTab === 'periodic' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                  
+                  {/* Header & Apply Due CTA */}
+                  <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                      <h3 style={{ fontSize: 15, fontWeight: 800 }}>خریدهای مرتب و دوره‌ای (پریودیک)</h3>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 0' }}>
+                        ثبت اقلامی که به صورت دوره‌ای مصرف می‌شوند (مثل شیر یک روز در میان، نان و ...)
+                      </p>
+                    </div>
+
+                    <button 
+                      className="btn btn-primary btn-sm"
+                      onClick={handleApplyDuePeriodic}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <RefreshCw size={14} />
+                      انتقال اقلام سررسید‌شده به لیست خرید
+                    </button>
+                  </div>
+
+                  {/* Manual Creation Form */}
+                  <div className="card">
+                    <h4 style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>تعریف دستی خرید دوره‌ای جدید:</h4>
+                    <form onSubmit={handleCreatePeriodic} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, alignItems: 'flex-end' }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>عنوان کالا</label>
+                        <input 
+                          type="text" 
+                          placeholder="مثلاً: شیر کم‌چرب پگاه (۲ پاکت)"
+                          value={newPeriodicTitle}
+                          onChange={(e) => setNewPeriodicTitle(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 12.5
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>مقدار در هر دوره</label>
+                        <input 
+                          type="text" 
+                          placeholder="مثلاً: ۲ لیتر"
+                          value={newPeriodicAmount}
+                          onChange={(e) => setNewPeriodicAmount(e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 12.5
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>دوره تکرار</label>
+                        <select
+                          value={newPeriodicInterval}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setNewPeriodicInterval(val);
+                            if (val === 2) setNewPeriodicLabel('یک روز در میان');
+                            else if (val === 3) setNewPeriodicLabel('هر ۳ روز');
+                            else if (val === 7) setNewPeriodicLabel('هفتگی');
+                            else if (val === 30) setNewPeriodicLabel('ماهانه');
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--border)',
+                            background: 'var(--surface-2)',
+                            color: 'var(--text)',
+                            fontSize: 12.5
+                          }}
+                        >
+                          <option value={2}>یک روز در میان (۲ روز)</option>
+                          <option value={3}>هر ۳ روز</option>
+                          <option value={7}>هفتگی (۷ روز)</option>
+                          <option value={30}>ماهانه (۳۰ روز)</option>
+                        </select>
+                      </div>
+
+                      <button type="submit" className="btn btn-primary" style={{ height: 38, fontSize: 12.5 }}>
+                        <Plus size={15} /> ثبت دوره خرید
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Active Periodic List */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+                    {periodicPurchases.map(p => (
+                      <div key={p.id} className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 10, opacity: p.active ? 1 : 0.6 }}>
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span className="badge badge-secondary">{p.interval_label}</span>
+                            {p.is_ai_suggested && (
+                              <span className="badge" style={{ background: 'var(--lavender-light)', color: 'var(--lavender)', fontSize: 10 }}>
+                                ✨ پیشنهاد هوش مصنوعی
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 style={{ fontSize: 14, fontWeight: 700, margin: '8px 0 2px' }}>{p.title}</h4>
+                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>مقدار: {p.amount} • {p.category}</div>
+                          <div style={{ fontSize: 11.5, color: 'var(--primary)', marginTop: 6, fontWeight: 600 }}>
+                            سررسید خرید: {p.next_due_days === 0 ? 'امروز' : `${p.next_due_days} روز دیگر`}
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                          <button 
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleTogglePeriodic(p.id)}
+                            style={{ fontSize: 11 }}
+                          >
+                            {p.active ? '⏸ توقف موقت' : '▶ فعال‌سازی'}
+                          </button>
+                          <button 
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--danger)', padding: 4 }}
+                            onClick={() => handleDeletePeriodic(p.id, p.title)}
+                            title="حذف دوره"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                </div>
+              )}
+
             </div>
           )}
+
 
           {/* ════════════════════════════════════════════════════
               11. VIEW: FAMILY & TASKS (M01, M08)

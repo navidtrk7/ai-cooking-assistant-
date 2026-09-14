@@ -226,3 +226,68 @@ class AiConfigUpdate(BaseModel):
     gemini_api_key: Optional[str] = None
     gemini_model: Optional[str] = None
     ai_provider: Optional[str] = None
+
+# --- Shopping & Store Comparison Schemas ---
+class StoreOffer(BaseModel):
+    store_name: str
+    price: int
+    available: bool = True
+    link: str
+
+class ItemStoreComparison(BaseModel):
+    item_id: str
+    item_name: str
+    amount: str
+    category: str = "عمومی"
+    okala: StoreOffer
+    digikala_jet: StoreOffer
+    snapp_market: StoreOffer
+    best_store: str  # "افق کوروش (اکالا)" | "دیجی‌کالا جت" | "اسنپ‌مارکت"
+
+class StoreSummary(BaseModel):
+    name: str
+    slug: str
+    total_price: int
+    delivery_time: str
+    delivery_fee: int
+    coverage_percent: int
+    link: str
+    bulk_buy_url: str
+
+class DetailedStoreComparison(BaseModel):
+    observed_time: str
+    stores: List[StoreSummary]
+    items: List[ItemStoreComparison]
+
+# --- Periodic Purchases ---
+class PeriodicPurchase(BaseModel):
+    id: str
+    title: str
+    amount: str
+    interval_days: int
+    interval_label: str  # "یک روز در میان", "هفتگی", "هر ۳ روز", "ماهانه"
+    next_due_days: int
+    is_ai_suggested: bool = False
+    category: str = "عمومی"
+    active: bool = True
+
+class PeriodicPurchaseCreate(BaseModel):
+    title: str
+    amount: str
+    interval_days: int
+    interval_label: str
+    category: str = "عمومی"
+
+# --- Pantry Sync ---
+class PantrySyncItem(BaseModel):
+    shopping_item_id: str
+    shopping_name: str
+    needed_amount: str
+    pantry_name: str
+    pantry_quantity: float
+    pantry_unit: str
+
+class PantrySyncResponse(BaseModel):
+    matches: List[PantrySyncItem]
+    message: str
+
