@@ -220,10 +220,29 @@ async def list_recipe_catalog(category: Optional[str] = None, occasion: Optional
 
 @router.get("/recipes/{recipe_id}", response_model=Recipe)
 async def get_recipe(recipe_id: str):
-    recipe = next((r for r in recipes_db if r.id == recipe_id), None)
-    if not recipe:
-        raise HTTPException(status_code=404, detail="دستور پخت یافت نشد")
-    return recipe
+    clean_id = recipe_id.strip()
+    
+    # 1. Direct match (case-insensitive)
+    recipe = next((r for r in recipes_db if r.id.lower() == clean_id.lower()), None)
+    if recipe:
+        return recipe
+
+    # 2. Number-based match: IR001, IR1, rec-1, or 1
+    digits = "".join(ch for ch in clean_id if ch.isdigit())
+    if digits:
+        num = int(digits)
+        target_ir = f"IR{num:03d}".lower()
+        target_rec = f"rec-{num}".lower()
+        recipe = next((r for r in recipes_db if r.id.lower() in (target_ir, target_rec)), None)
+        if recipe:
+            return recipe
+
+    # 3. Match by title keyword
+    recipe = next((r for r in recipes_db if clean_id in r.title or r.title in clean_id), None)
+    if recipe:
+        return recipe
+
+    raise HTTPException(status_code=404, detail="دستور پخت یافت نشد")
 
 # ----------------- RECOMMENDATIONS (CRITICAL: ALLERGEN HARD FILTER) -----------------
 @router.post("/recommendations", response_model=RecommendationResponse)

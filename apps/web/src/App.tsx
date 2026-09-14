@@ -375,8 +375,11 @@ export function App() {
     try {
       const fullRecipe = await api.getRecipeById(recipeId);
       setSelectedRecipe(fullRecipe);
+      setServingsCount(fullRecipe.servings || 4);
+      setActiveStepIndex(0);
       navigate('recipe');
-    } catch {
+    } catch (err) {
+      console.error('Failed to load recipe:', recipeId, err);
       showToast('خطا در بارگذاری اطلاعات دستور پخت');
     }
   };
