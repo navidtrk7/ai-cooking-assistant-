@@ -5,13 +5,16 @@ from fastapi import APIRouter, HTTPException, Header
 from apps.api.app.schemas.schemas import (
     Household, HealthPreferences, PantryItem, PantryCreate,
     Recipe, RecommendationFilter, RecommendationResponse,
-    ChatMessage, AiChatResponse, AiActionDraft
+    ChatMessage, AiChatResponse, AiActionDraft, AiStatusResponse, AiConfigUpdate
 )
 from apps.api.app.data.seed_data import DEFAULT_HOUSEHOLD, INITIAL_PANTRY_ITEMS, INITIAL_RECIPES
 from apps.api.app.ai.ollama_adapter import ollama_service
+from apps.api.app.ai.gemini_adapter import gemini_service
 from apps.api.app.ai.recommender import recommender_engine
+from apps.api.app.ai.manager import ai_manager
 
 router = APIRouter()
+
 
 # In-memory working database state
 household_db = DEFAULT_HOUSEHOLD
@@ -47,15 +50,120 @@ family_tasks_db = [
     {"id": "t4", "title": "خالی کردن ماشین ظرفشویی", "assigned_to": "آریا (کودک)", "reward_points": 20, "is_child_safe": True, "completed": True},
 ]
 
-# ----------------- SYSTEM HEALTH -----------------
+from apps.api.app.core.auth import (
+    USERS_DB, PASSWORDS_DB, User, LoginRequest, RegisterRequest,
+    OtpRequest, OtpVerifyRequest, authenticate_user, register_user, DEMO_OTP
+)
+
+# ----------------- AUTHENTICATION & USER MANAGEMENT -----------------
+@router.post("/auth/login")
+async def login(req: LoginRequest):
+    user = authenticate_user(req.username_or_phone, req.password, req.otp_code)
+    if not user:
+        raise HTTPException(status_code=401, detail="نام کاربری، رمز عبور یا کد تایید نادرست است.")
+    return {
+        "success": True,
+        "token": f"auth-{user.id}-{uuid.uuid4().hex[:8]}",
+        "user": user,
+        "message": f"خوش آمدید، {user.full_name}!"
+    }
+
+@router.post("/auth/register")
+async def register(req: RegisterRequest):
+    try:
+        new_user = register_user(req)
+        return {
+            "success": True,
+            "token": f"auth-{new_user.id}-{uuid.uuid4().hex[:8]}",
+            "user": new_user,
+            "message": "ثبت‌نام با موفقیت انجام شد."
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/auth/request-otp")
+async def request_otp(req: OtpRequest):
+    phone = req.phone_number.strip()
+    if len(phone) < 10:
+        raise HTTPException(status_code=400, detail="شماره موبایل وارد شده معتبر نیست.")
+    return {
+        "success": True,
+        "phone_number": phone,
+        "demo_code": DEMO_OTP,
+        "message": f"کد تایید پیامک شد. (حالت دمو: کد تایید {DEMO_OTP} است)"
+    }
+
+@router.post("/auth/verify-otp")
+async def verify_otp(req: OtpVerifyRequest):
+    user = authenticate_user(req.phone_number, otp_code=req.code)
+    if not user:
+        raise HTTPException(status_code=400, detail=f"کد تایید اشتباه است. (در حالت دمو از {DEMO_OTP} استفاده کنید)")
+    return {
+        "success": True,
+        "token": f"auth-{user.id}-{uuid.uuid4().hex[:8]}",
+        "user": user,
+        "message": f"احراز هویت با موفقیت انجام شد. خوش آمدید {user.full_name}"
+    }
+
+@router.get("/auth/users", response_model=List[User])
+async def list_users():
+    return list(USERS_DB.values())
+
+class CreateUserAdminRequest(BaseModel):
+    full_name: str
+    username: str
+    phone_number: str
+    password: str = "123"
+    role: str = "member"
+
+@router.post("/auth/users", response_model=User)
+async def create_user_by_admin(req: CreateUserAdminRequest):
+    reg = RegisterRequest(
+        full_name=req.full_name,
+        phone_number=req.phone_number,
+        username=req.username,
+        password=req.password
+    )
+    user = register_user(reg)
+    user.role = req.role
+    return user
+
+# ----------------- SYSTEM HEALTH & AI STATUS -----------------
 @router.get("/health")
 async def check_health():
-    ollama_ok = await ollama_service.check_health()
+    ai_status = await ai_manager.get_status()
     return {
         "status": "healthy",
-        "ollama_active": ollama_ok,
-        "active_models": [ollama_service.primary_model, ollama_service.fallback_model]
+        "ai": ai_status,
+        "ollama_active": ai_status.ollama_active,
+        "gemini_configured": ai_status.gemini_configured,
+        "active_provider": ai_status.active_provider,
+        "active_model": ai_status.active_model,
+        "active_models": [ai_status.gemini_model, ai_status.ollama_model]
     }
+
+@router.get("/ai/status", response_model=AiStatusResponse)
+async def get_ai_status():
+    return await ai_manager.get_status()
+
+@router.post("/ai/config")
+async def update_ai_config(cfg: AiConfigUpdate):
+    return await ai_manager.update_config(cfg)
+
+class TestKeyRequest(BaseModel):
+    api_key: Optional[str] = None
+
+@router.post("/ai/test-key")
+async def test_ai_key(req: TestKeyRequest):
+    return await ai_manager.test_gemini_connection(req.api_key)
+
+@router.get("/ai/models")
+async def get_gemini_models():
+    return await ai_manager.get_gemini_models()
+
+@router.post("/ai/models")
+async def fetch_gemini_models(req: TestKeyRequest):
+    return await ai_manager.get_gemini_models(req.api_key)
 
 # ----------------- HOUSEHOLD & HEALTH -----------------
 @router.get("/household", response_model=Household)
@@ -241,7 +349,7 @@ async def get_family_tasks():
 # ----------------- AI ASSISTANT & CHAT -----------------
 @router.post("/assistant/chat", response_model=AiChatResponse)
 async def chat_with_assistant(msg: ChatMessage, context: str = "خانه"):
-    return await ollama_service.chat(user_message=msg.content, current_page_context=context)
+    return await ai_manager.chat(user_message=msg.content, current_page_context=context)
 
 @router.post("/assistant/confirm-action")
 async def confirm_action(draft: AiActionDraft):

@@ -1,8 +1,9 @@
 import type { 
   Household, PantryItem, RecommendationResponse, AiChatResponse, 
   AiActionDraft, MealPlanDay, ShoppingItem, StoreComparison, 
-  ReceiptScan, FamilyTask 
+  ReceiptScan, FamilyTask, AiStatusResponse 
 } from '../types';
+
 
 const API_BASE_URL = 'http://localhost:8200/api/v1';
 
@@ -109,6 +110,31 @@ export const api = {
     return res.json();
   },
 
+  async getAiStatus(): Promise<AiStatusResponse> {
+    const res = await fetch(`${API_BASE_URL}/ai/status`);
+    if (!res.ok) throw new Error('خطا در دریافت وضعیت هوش مصنوعی');
+    return res.json();
+  },
+
+  async updateAiConfig(cfg: { gemini_api_key?: string; gemini_model?: string; ai_provider?: string }): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/ai/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (!res.ok) throw new Error('خطا در بروزرسانی تنظیمات هوش مصنوعی');
+    return res.json();
+  },
+
+  async testGeminiKey(apiKey?: string): Promise<{ valid: boolean; model?: string; error?: string; message?: string }> {
+    const res = await fetch(`${API_BASE_URL}/ai/test-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    return res.json();
+  },
+
   async chatWithAssistant(content: string, context = 'خانه'): Promise<AiChatResponse> {
     const res = await fetch(`${API_BASE_URL}/assistant/chat?context=${encodeURIComponent(context)}`, {
       method: 'POST',
@@ -128,4 +154,88 @@ export const api = {
     if (!res.ok) throw new Error('خطا در ثبت نهایی عملیات');
     return res.json();
   },
+
+  // ---------------- AUTH & USERS API ----------------
+  async login(credentials: { username_or_phone: string; password?: string; otp_code?: string }) {
+    const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(credentials),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'خطا در ورود به سیستم' }));
+      throw new Error(err.detail || 'خطا در ورود به سیستم');
+    }
+    return res.json();
+  },
+
+  async register(data: { full_name: string; phone_number: string; username: string; password: string }) {
+    const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'خطا در ثبت‌نام' }));
+      throw new Error(err.detail || 'خطا در ثبت‌نام');
+    }
+    return res.json();
+  },
+
+  async requestOtp(phoneNumber: string): Promise<{ success: boolean; demo_code: string; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/auth/request-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phoneNumber }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'خطا در ارسال کد' }));
+      throw new Error(err.detail || 'خطا در ارسال کد');
+    }
+    return res.json();
+  },
+
+  async verifyOtp(phoneNumber: string, code: string) {
+    const res = await fetch(`${API_BASE_URL}/auth/verify-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number: phoneNumber, code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'کد تایید اشتباه است' }));
+      throw new Error(err.detail || 'کد تایید اشتباه است');
+    }
+    return res.json();
+  },
+
+  async getUsers() {
+    const res = await fetch(`${API_BASE_URL}/auth/users`);
+    if (!res.ok) throw new Error('خطا در دریافت لیست کاربران');
+    return res.json();
+  },
+
+  async createAdminUser(user: { full_name: string; username: string; phone_number: string; role: string; password?: string }) {
+    const res = await fetch(`${API_BASE_URL}/auth/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(user),
+    });
+    if (!res.ok) throw new Error('خطا در ایجاد کاربر');
+    return res.json();
+  },
+
+  // ---------------- GEMINI MODELS API ----------------
+  async getGeminiModels(apiKey?: string) {
+    if (apiKey) {
+      const res = await fetch(`${API_BASE_URL}/ai/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: apiKey }),
+      });
+      return res.json();
+    }
+    const res = await fetch(`${API_BASE_URL}/ai/models`);
+    return res.json();
+  },
 };
+

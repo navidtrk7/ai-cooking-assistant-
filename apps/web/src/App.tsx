@@ -5,13 +5,17 @@ import {
   AlertCircle, ChevronRight, Play, Pause, 
   Check, Plus, Trash2, X, ShoppingCart, Store, Users, 
   BarChart3, Camera, CheckSquare, ArrowUpRight, Flame, 
-  Heart, Award, Menu, Music, Volume2
+  Heart, Award, Menu, Music, Volume2, Key, Cpu, Sliders, ExternalLink,
+  ShieldCheck, UserCheck
 } from 'lucide-react';
 import { api } from './services/api';
 import type { 
   PantryItem, Recipe, RecommendationResponse, ChatMessage, 
-  MealPlanDay, ShoppingItem, StoreComparison, ReceiptScan, FamilyTask 
+  MealPlanDay, ShoppingItem, StoreComparison, ReceiptScan, FamilyTask,
+  AiStatusResponse, User
 } from './types';
+import { AuthModal } from './components/auth/AuthModal';
+import { AdminPanel } from './components/admin/AdminPanel';
 
 export function App() {
   const [currentView, setCurrentView] = useState<string>('home');
@@ -19,6 +23,37 @@ export function App() {
   const [ollamaActive, setOllamaActive] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<string>('۱۲:۳۰');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  // User Authentication State
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('cooking_user');
+    if (saved) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    // Default logged in as Super Admin 'navid'
+    return {
+      id: 'u-admin',
+      username: 'navid',
+      phone_number: '09120000000',
+      full_name: 'نوید (مدیر ارشد)',
+      role: 'super_admin',
+      is_active: true,
+      created_at: '1403-06-01'
+    };
+  });
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+
+  const handleUserLogin = (user: User) => {
+    setCurrentUser(user);
+    localStorage.setItem('cooking_user', JSON.stringify(user));
+  };
+
+  const handleUserLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('cooking_user');
+    showToast('از حساب کاربری خارج شدید.');
+  };
+
 
   // Backend Data States
   const [pantry, setPantry] = useState<PantryItem[]>([]);
@@ -63,14 +98,24 @@ export function App() {
   const [aiDrawerOpen, setAiDrawerOpen] = useState<boolean>(false);
   const [aiInput, setAiInput] = useState<string>('');
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
+  const [aiStatus, setAiStatus] = useState<AiStatusResponse | null>(null);
+  const [showAiSettings, setShowAiSettings] = useState<boolean>(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState<string>('');
+  const [geminiModelInput, setGeminiModelInput] = useState<string>('gemini-1.5-flash');
+  const [providerChoice, setProviderChoice] = useState<string>('auto');
+  const [keyTesting, setKeyTesting] = useState<boolean>(false);
+  const [keyTestResult, setKeyTestResult] = useState<{ valid: boolean; message?: string; error?: string } | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: '1',
       role: 'assistant',
-      content: 'سلام! من دستیار هوشمند آشپزخانه شما هستم، متصل به مدل Ollama لوکال. هر سؤالی در مورد غذا، موجودی یا برنامه‌ریزی دارید در خدمتم.',
-      timestamp: 'همین الان'
+      content: 'سلام! من دستیار هوشمند آشپزخانه شما هستم. با قابلیت اتصال به Google Gemini و مدلهای محلی. هر سؤالی در مورد غذا، پخت، انبارداری و برنامه‌ریزی دارید در خدمتم.',
+      timestamp: 'همین الان',
+      provider: 'gemini',
+      model: 'gemini-1.5-flash'
     }
   ]);
+
 
   // Onboarding Step State
   const [obStep, setObStep] = useState<number>(1);
@@ -122,6 +167,11 @@ export function App() {
       try {
         const health = await api.getHealth();
         setOllamaActive(health.ollama_active);
+
+        api.getAiStatus().then(st => {
+          setAiStatus(st);
+          setGeminiModelInput(st.gemini_model || 'gemini-1.5-flash');
+        }).catch(() => {});
 
         const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes] = await Promise.all([
           api.getPantry().catch(() => []),
@@ -345,6 +395,8 @@ export function App() {
         role: 'assistant',
         content: res.reply,
         draft_action: res.draft_action,
+        provider: res.provider,
+        model: res.model,
         timestamp: 'همین الان'
       };
       setChatMessages(prev => [...prev, botMsg]);
@@ -362,6 +414,38 @@ export function App() {
       setIsAiLoading(false);
     }
   };
+
+  // AI Configuration Handlers
+  const handleTestGeminiKey = async () => {
+    setKeyTesting(true);
+    setKeyTestResult(null);
+    try {
+      const res = await api.testGeminiKey(geminiKeyInput.trim() || undefined);
+      setKeyTestResult(res);
+    } catch {
+      setKeyTestResult({ valid: false, error: 'خطا در ارتباط با سرور بک‌اند' });
+    } finally {
+      setKeyTesting(false);
+    }
+  };
+
+  const handleSaveAiConfig = async () => {
+    try {
+      const res = await api.updateAiConfig({
+        gemini_api_key: geminiKeyInput.trim() || undefined,
+        gemini_model: geminiModelInput,
+        ai_provider: providerChoice
+      });
+      if (res?.status) {
+        setAiStatus(res.status);
+      }
+      showToast('تنظیمات هوش مصنوعی با موفقیت ثبت و ذخیره شد.');
+      setShowAiSettings(false);
+    } catch {
+      showToast('خطا در ذخیره تنظیمات هوش مصنوعی.');
+    }
+  };
+
 
   // Confirm AI Action (Human-in-the-Loop)
   const handleConfirmAction = async (msgId: string, draft: any) => {
@@ -382,6 +466,9 @@ export function App() {
 
   const navItems = [
     { id: 'home', label: 'داشبورد خانه', icon: Home },
+    ...(currentUser?.role === 'super_admin' ? [
+      { id: 'admin', label: 'پنل مدیریت (نوید)', icon: ShieldCheck }
+    ] : []),
     { id: 'recommend', label: 'پیشنهاد هوشمند غذا', icon: Compass },
     { id: 'wheel', label: 'گردونه تصمیم‌گیری', icon: RotateCcw },
     { id: 'recipe', label: 'دستور پخت و جزئیات', icon: BookOpen },
@@ -562,42 +649,56 @@ export function App() {
           </div>
 
           {/* Profile Card */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '8px 10px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'rgba(255,255,255,0.05)'
-          }}>
+          <div 
+            onClick={() => setAuthModalOpen(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-sm)',
+              background: 'rgba(255,255,255,0.05)',
+              cursor: 'pointer',
+              transition: 'background 0.2s'
+            }}
+            title="کلیک برای مدیریت حساب کاربری یا ورود"
+          >
             <div style={{
               width: 32,
               height: 32,
               borderRadius: '50%',
-              background: 'var(--apricot)',
-              color: '#5C3A1E',
+              background: currentUser?.role === 'super_admin' ? 'var(--primary)' : 'var(--apricot)',
+              color: '#FFF',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontWeight: 800,
               fontSize: 14
             }}>
-              ن
+              {currentUser?.full_name ? currentUser.full_name.charAt(0) : 'ن'}
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#E8F3EA' }}>نوید مددی</div>
-              <div style={{ fontSize: 10, color: '#8DB89E' }}>خانه ۴ نفره • مدیر</div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#E8F3EA', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>
+                {currentUser?.full_name || 'ورود به حساب'}
+              </div>
+              <div style={{ fontSize: 10, color: '#8DB89E' }}>
+                {currentUser?.role === 'super_admin' ? 'مدیر ارشد سیستم' : currentUser ? 'عضو خانواده' : 'مهمان'}
+              </div>
             </div>
-            <span style={{
-              fontSize: 9,
-              fontWeight: 700,
-              background: 'linear-gradient(135deg, #C8B8E8, #A99AD0)',
-              color: '#2A2538',
-              padding: '2px 6px',
-              borderRadius: 'var(--radius-pill)'
-            }}>
-              پریمیوم
-            </span>
+            {currentUser ? (
+              <span style={{
+                fontSize: 9,
+                fontWeight: 700,
+                background: currentUser.role === 'super_admin' ? 'var(--apricot)' : 'linear-gradient(135deg, #C8B8E8, #A99AD0)',
+                color: '#FFF',
+                padding: '2px 6px',
+                borderRadius: 'var(--radius-pill)'
+              }}>
+                {currentUser.role === 'super_admin' ? 'ادمین' : 'کاربر'}
+              </span>
+            ) : (
+              <span style={{ fontSize: 10, color: 'var(--primary)', fontWeight: 700 }}>ورود</span>
+            )}
           </div>
 
         </div>
@@ -646,6 +747,45 @@ export function App() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* User Account Button */}
+              <button 
+                onClick={() => setAuthModalOpen(true)}
+                title="مدیریت حساب کاربری و ورود"
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: 6, 
+                  padding: '4px 10px', 
+                  borderRadius: 'var(--radius-pill)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--surface-2)',
+                  cursor: 'pointer'
+                }}
+              >
+                <div style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: '50%',
+                  background: currentUser?.role === 'super_admin' ? 'var(--primary)' : 'var(--muted)',
+                  color: '#fff',
+                  fontSize: 11,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  {currentUser ? currentUser.full_name.charAt(0) : <UserCheck size={12} />}
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                  {currentUser ? currentUser.full_name.split(' ')[0] : 'ورود'}
+                </span>
+                {currentUser?.role === 'super_admin' && (
+                  <span style={{ fontSize: 9, background: 'var(--apricot)', color: '#fff', padding: '1px 5px', borderRadius: 8, fontWeight: 800 }}>
+                    ادمین
+                  </span>
+                )}
+              </button>
+
               <button 
                 className="btn btn-ghost btn-sm" 
                 onClick={toggleTheme}
@@ -655,7 +795,6 @@ export function App() {
                 {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
               </button>
               <div className="wave-bars">
-
                 <div className="wave-bar" />
                 <div className="wave-bar" />
                 <div className="wave-bar" />
@@ -736,6 +875,18 @@ export function App() {
 
         {/* Dynamic Page Views */}
         <div className="app-content" style={{ padding: '28px 32px', flex: 1 }}>
+
+          {/* ════════════════════════════════════════════════════
+              0. VIEW: SUPER ADMIN PANEL
+             ════════════════════════════════════════════════════ */}
+          {currentView === 'admin' && (
+            <AdminPanel
+              currentUser={currentUser}
+              onClose={() => navigate('home')}
+              onLogout={handleUserLogout}
+              showToast={showToast}
+            />
+          )}
 
           {/* ════════════════════════════════════════════════════
               1. VIEW: DASHBOARD HOME
@@ -1987,14 +2138,41 @@ export function App() {
                   <Sparkles size={18} />
                 </div>
                 <div>
-                  <h3 style={{ fontSize: 14, fontWeight: 800 }}>دستیار صوتی و متنی آشپزخانه</h3>
-                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>زمینه صفحه جاری: {currentView}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 800, margin: 0 }}>دستیار هوشمند آشپزخانه</h3>
+                    <button 
+                      type="button"
+                      className={`badge-ai ${aiStatus?.active_provider === 'gemini' ? 'badge-gemini' : aiStatus?.active_provider === 'ollama' ? 'badge-ollama' : 'badge-local'}`}
+                      onClick={() => setShowAiSettings(true)}
+                      title="کلیک برای تنظیم موتور و کلید Gemini"
+                    >
+                      <Sparkles size={11} />
+                      {aiStatus?.active_provider === 'gemini'
+                        ? `Gemini ${(aiStatus?.active_model || 'Flash').replace('gemini-', '')}`
+                        : aiStatus?.active_provider === 'ollama'
+                        ? `Ollama ${(aiStatus?.active_model || 'Gemma')}`
+                        : 'آفلاین'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>زمینه صفحه جاری: {currentView}</div>
                 </div>
               </div>
-              <button className="btn btn-ghost" onClick={() => setAiDrawerOpen(false)} style={{ padding: 6 }}>
-                <X size={18} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button 
+                  type="button" 
+                  className="btn btn-ghost" 
+                  onClick={() => setShowAiSettings(true)} 
+                  style={{ padding: 6 }}
+                  title="تنظیمات هوش مصنوعی"
+                >
+                  <Sliders size={17} />
+                </button>
+                <button className="btn btn-ghost" onClick={() => setAiDrawerOpen(false)} style={{ padding: 6 }}>
+                  <X size={18} />
+                </button>
+              </div>
             </div>
+
 
             {/* Quick Prompt Chips */}
             <div style={{ display: 'flex', gap: 6, padding: '10px 20px', background: 'var(--surface-2)', overflowX: 'auto' }}>
@@ -2086,9 +2264,24 @@ export function App() {
                     </div>
                   )}
 
-                  <span style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4, alignSelf: msg.role === 'user' ? 'flex-start' : 'flex-end' }}>
-                    {msg.timestamp}
-                  </span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: 4 }}>
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                      {msg.timestamp}
+                    </span>
+                    {msg.role === 'assistant' && (
+                      <span style={{ 
+                        fontSize: 9.5, 
+                        fontWeight: 700,
+                        color: msg.provider === 'gemini' ? 'var(--lavender)' : 'var(--primary)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 3
+                      }}>
+                        {msg.provider === 'gemini' ? `✨ Gemini ${(msg.model || 'Flash').replace('gemini-', '')}` : msg.provider === 'ollama' ? `🦙 Ollama` : '⚡ دستیار'}
+                      </span>
+                    )}
+                  </div>
+
                 </div>
               ))}
 
@@ -2135,6 +2328,200 @@ export function App() {
           </div>
         </div>
       )}
+
+      {/* ════════════════════════════════════════════════════
+          16. AI SETTINGS MODAL (GEMINI & OLLAMA CONFIGURATION)
+         ════════════════════════════════════════════════════ */}
+
+      {showAiSettings && (
+        <div className="modal-backdrop" onClick={() => setShowAiSettings(false)}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--lavender-light)', color: 'var(--lavender)', display: 'grid', placeItems: 'center' }}>
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>تنظیمات هوش مصنوعی دستیار</h3>
+                  <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>اتصال به Google Gemini، مدل‌های محلی Ollama یا موتور بومی</p>
+                </div>
+              </div>
+              <button className="btn btn-ghost" onClick={() => setShowAiSettings(false)} style={{ padding: 6 }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Provider Selection */}
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8 }}>
+                موتور هوش مصنوعی پیش‌فرض
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                <div 
+                  className={`provider-card ${providerChoice === 'auto' ? 'selected' : ''}`}
+                  onClick={() => setProviderChoice('auto')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12 }}>
+                    <Sparkles size={14} color="var(--primary)" />
+                    خودکار (هوشمند)
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>سوییچ خودکار بین Gemini و Ollama</span>
+                </div>
+
+                <div 
+                  className={`provider-card ${providerChoice === 'gemini' ? 'selected' : ''}`}
+                  onClick={() => setProviderChoice('gemini')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12 }}>
+                    <Sparkles size={14} color="var(--lavender)" />
+                    Google Gemini
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>مدل ابری پرسرعت Flash</span>
+                </div>
+
+                <div 
+                  className={`provider-card ${providerChoice === 'ollama' ? 'selected' : ''}`}
+                  onClick={() => setProviderChoice('ollama')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 12 }}>
+                    <Cpu size={14} color="var(--primary)" />
+                    Ollama محلی
+                  </div>
+                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>اجرای کامل آفلاین در سیستم</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Google Gemini Config Section */}
+            <div style={{ background: 'var(--surface-2)', padding: 16, borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--lavender)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Key size={15} /> کلید API گوگل جمینای (Google Gemini API Key)
+                </span>
+                <a 
+                  href="https://aistudio.google.com/app/apikey" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  style={{ fontSize: 11, color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none', fontWeight: 600 }}
+                >
+                  دریافت کلید رایگان <ExternalLink size={12} />
+                </a>
+              </div>
+
+              <div>
+                <input 
+                  type="password"
+                  placeholder={aiStatus?.gemini_configured ? "کلید ثبت شده است (برای تغییر کلید جدید بنویسید)" : "مثال: AIzaSyD..."}
+                  value={geminiKeyInput}
+                  onChange={e => setGeminiKeyInput(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: 'var(--radius-sm)',
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface)',
+                    color: 'var(--text)',
+                    fontSize: 13,
+                    direction: 'ltr'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                    مدل Gemini
+                  </label>
+                  <select
+                    value={geminiModelInput}
+                    onChange={e => setGeminiModelInput(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      fontSize: 12
+                    }}
+                  >
+                    <option value="gemini-1.5-flash">Gemini 1.5 Flash (سریع و هوشمند - پیشنهادی)</option>
+                    <option value="gemini-2.0-flash">Gemini 2.0 Flash (جدیدترین مدل گوگل)</option>
+                    <option value="gemini-1.5-pro">Gemini 1.5 Pro (استدلال عمیق)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button 
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ width: '100%', height: 38, fontSize: 12 }}
+                    onClick={handleTestGeminiKey}
+                    disabled={keyTesting}
+                  >
+                    {keyTesting ? 'در حال تست اتصال...' : '🔍 تست اتصال کلید'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Test Result Message Box */}
+              {keyTestResult && (
+                <div style={{
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 12,
+                  background: keyTestResult.valid ? 'var(--primary-light)' : 'var(--danger-light)',
+                  color: keyTestResult.valid ? 'var(--primary)' : 'var(--danger)',
+                  border: `1px solid ${keyTestResult.valid ? 'var(--primary)' : 'var(--danger)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}>
+                  {keyTestResult.valid ? <Check size={16} /> : <AlertCircle size={16} />}
+                  <span>{keyTestResult.message || keyTestResult.error}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Ollama Status Info */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Cpu size={15} color="var(--primary)" />
+                <span>وضعیت Ollama محلی:</span>
+              </div>
+              <span style={{ fontWeight: 700, color: aiStatus?.ollama_active ? 'var(--primary)' : 'var(--muted)' }}>
+                {aiStatus?.ollama_active ? `فعال (${aiStatus.ollama_model})` : 'در دسترس نیست'}
+              </span>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={() => setShowAiSettings(false)}
+              >
+                انصراف
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                onClick={handleSaveAiConfig}
+              >
+                <Check size={15} /> ذخیره و اعمال تغییرات
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Authentication & Registration Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={handleUserLogin}
+        showToast={showToast}
+      />
 
     </div>
   );

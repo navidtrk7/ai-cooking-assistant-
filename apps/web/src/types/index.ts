@@ -88,6 +88,8 @@ export interface AiActionDraft {
 export interface AiChatResponse {
   reply: string;
   draft_action?: AiActionDraft | null;
+  provider?: string;
+  model?: string;
 }
 
 export interface ChatMessage {
@@ -96,6 +98,18 @@ export interface ChatMessage {
   content: string;
   draft_action?: AiActionDraft | null;
   timestamp: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface AiStatusResponse {
+  active_provider: string;
+  active_model: string;
+  gemini_configured: boolean;
+  gemini_model: string;
+  ollama_active: boolean;
+  ollama_model: string;
+  available_providers: string[];
 }
 
 export interface MealPlanDay {
@@ -156,3 +170,31 @@ export interface FamilyTask {
   is_child_safe: boolean;
   completed: boolean;
 }
+
+export interface User {
+  id: string;
+  username: string;
+  phone_number: string;
+  full_name: string;
+  role: 'super_admin' | 'admin' | 'member';
+  is_active: boolean;
+  created_at?: string;
+}
+
+export interface GeminiModelInfo {
+  id: string;
+  name: string;
+  description: string;
+  recommended: boolean;
+  tier: string;
+}
+
+export interface GeminiModelsResponse {
+  success: boolean;
+  source: string;
+  recommended_model: string;
+  models: GeminiModelInfo[];
+  message?: string;
+  error?: string;
+}
+

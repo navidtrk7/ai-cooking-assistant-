@@ -101,3 +101,19 @@ class AiActionDraft(BaseModel):
 class AiChatResponse(BaseModel):
     reply: str
     draft_action: Optional[AiActionDraft] = None
+    provider: str = "gemini"  # "gemini", "ollama", "heuristic"
+    model: str = "gemini-1.5-flash"
+
+class AiStatusResponse(BaseModel):
+    active_provider: str
+    active_model: str
+    gemini_configured: bool
+    gemini_model: str
+    ollama_active: bool
+    ollama_model: str
+    available_providers: List[str]
+
+class AiConfigUpdate(BaseModel):
+    gemini_api_key: Optional[str] = None
+    gemini_model: Optional[str] = None
+    ai_provider: Optional[str] = None
