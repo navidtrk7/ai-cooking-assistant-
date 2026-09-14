@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Home, Compass, RotateCcw, BookOpen, Clock, Calendar, 
   Package, Settings, Mic, Send, Sparkles, Moon, Sun, 
   AlertCircle, ChevronRight, Play, Pause, 
   Check, Plus, Trash2, X, ShoppingCart, Store, Users, 
   BarChart3, Camera, CheckSquare, ArrowUpRight, Flame, 
-  Heart, Award
+  Heart, Award, Menu, Music, Volume2
 } from 'lucide-react';
 import { api } from './services/api';
 import type { 
@@ -29,6 +29,7 @@ export function App() {
   const [storesData, setStoresData] = useState<StoreComparison | null>(null);
   const [familyTasks, setFamilyTasks] = useState<FamilyTask[]>([]);
   const [receiptData, setReceiptData] = useState<ReceiptScan | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = useState<boolean>(false);
 
   // Servings Scaler state
   const [servingsCount, setServingsCount] = useState<number>(4);
@@ -37,6 +38,8 @@ export function App() {
   const [cookingTimer, setCookingTimer] = useState<number>(15 * 60);
   const [timerRunning, setTimerRunning] = useState<boolean>(false);
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
+  const [musicPlaying, setMusicPlaying] = useState<boolean>(false);
+  const [musicSeconds, setMusicSeconds] = useState<number>(72);
 
   // Wheel State
   const [wheelRotation, setWheelRotation] = useState<number>(0);
@@ -54,6 +57,7 @@ export function App() {
   const [voiceRecording, setVoiceRecording] = useState<boolean>(false);
   const [voiceTranscript, setVoiceTranscript] = useState<string>('');
   const [transcriptEditing, setTranscriptEditing] = useState<boolean>(false);
+  const voiceRecognitionRef = useRef<any>(null);
 
   // AI Assistant Drawer State (سفر ۴)
   const [aiDrawerOpen, setAiDrawerOpen] = useState<boolean>(false);
@@ -91,6 +95,7 @@ export function App() {
     setCurrentView(view);
     window.location.hash = view;
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    setMobileNavOpen(false);
   };
 
   // Clock updater
@@ -153,25 +158,46 @@ export function App() {
     return () => clearInterval(interval);
   }, [timerRunning, cookingTimer]);
 
+  useEffect(() => {
+    if (!musicPlaying) return;
+    const interval = setInterval(() => setMusicSeconds(seconds => (seconds + 1) % 240), 1000);
+    return () => clearInterval(interval);
+  }, [musicPlaying]);
+
   const formatTimer = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Simulated Voice Input (سفر ۱)
+  // Native browser speech recognition. Text input remains available when the
+  // browser does not expose a speech engine (or when the user is offline).
   const handleVoiceMicToggle = () => {
-    if (!voiceRecording) {
-      setVoiceRecording(true);
-      showToast('🎙 در حال شنیدن گفتار شما…');
-      setTimeout(() => {
-        setVoiceTranscript('برای ۶ نفر مهمان دارم، مرغ و برنج داریم و غذای کم‌نمک می‌خواهم.');
-        setVoiceRecording(false);
-        setTranscriptEditing(true);
-      }, 2000);
-    } else {
+    if (voiceRecording) {
+      voiceRecognitionRef.current?.stop();
       setVoiceRecording(false);
+      return;
     }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setTranscriptEditing(true);
+      showToast('مرورگر شما ورود صوتی را پشتیبانی نمی‌کند؛ متن فرمان را وارد کنید.');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'fa-IR';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results).map((result: any) => result[0].transcript).join('');
+      setVoiceTranscript(transcript);
+      setTranscriptEditing(true);
+    };
+    recognition.onerror = () => showToast('دریافت گفتار ناموفق بود؛ می‌توانید متن را وارد کنید.');
+    recognition.onend = () => { setVoiceRecording(false); setTranscriptEditing(true); };
+    voiceRecognitionRef.current = recognition;
+    setVoiceRecording(true);
+    recognition.start();
   };
 
   // Submit Voice Query to AI
@@ -191,8 +217,16 @@ export function App() {
     setWheelRotation(prev => prev + randomDeg);
     setTimeout(() => {
       setWheelSpinning(false);
-      const dishes = ['قورمه‌سبزی جاافتاده', 'زرشک‌پلو با مرغ مجلسی', 'کوکو سبزی سبک', 'کشک بادمجان اصیل'];
-      const chosen = dishes[Math.floor(Math.random() * dishes.length)];
+      // The wheel only receives the same server-approved candidates as the
+      // recommendation cards; it cannot reintroduce a health-excluded recipe.
+      const candidates = recommendations ? [recommendations.top_recipe, ...recommendations.alternatives] : [];
+      const recipe = candidates[Math.floor(Math.random() * candidates.length)];
+      if (!recipe) {
+        showToast('گزینه مجاز برای گردونه پیدا نشد.');
+        return;
+      }
+      setSelectedRecipe(recipe);
+      const chosen = recipe.title;
       setWheelResult(chosen);
       showToast(`🎯 گردونه انتخاب کرد: ${chosen}`);
     }, 2500);
@@ -270,11 +304,22 @@ export function App() {
   // Confirm Receipt Items into Pantry
   const handleConfirmReceiptItems = async () => {
     if (!receiptData) return;
-    showToast('✓ اقلام تأییدشده به موجودی انبار و یخچال منتقل شدند.');
-    const updated = await api.getPantry();
-    setPantry(updated);
-    setReceiptData(null);
-    navigate('pantry');
+    try {
+      const result = await api.confirmReceipt(receiptData);
+      showToast(`✓ ${result.message}`);
+      setPantry(await api.getPantry());
+      setReceiptData(null);
+      navigate('pantry');
+    } catch {
+      showToast('خطا در ثبت اقلام تأییدشده');
+    }
+  };
+
+  const handleToggleReceiptItem = (id: string) => {
+    setReceiptData(current => current ? {
+      ...current,
+      items: current.items.map(item => item.id === id ? { ...item, checked: !item.checked } : item)
+    } : current);
   };
 
   // AI Chat Submit
@@ -327,6 +372,8 @@ export function App() {
         const updated = await api.getPantry();
         setPantry(updated);
       }
+      if (draft.action_type === 'add_shopping') setShoppingList(await api.getShoppingList());
+      if (draft.action_type === 'plan_meal') setMealPlans(await api.getMealPlans());
       setChatMessages(prev => prev.map(m => m.id === msgId ? { ...m, draft_action: null } : m));
     } catch {
       showToast('خطا در تأیید عملیات');
@@ -556,11 +603,31 @@ export function App() {
         </div>
       </aside>
 
+      {/* Mobile navigation: four frequent actions plus a full menu. */}
+      <nav className="mobile-bottom-bar" aria-label="ناوبری موبایل">
+        {[
+          { id: 'home', label: 'خانه', icon: Home },
+          { id: 'recommend', label: 'غذا', icon: Compass },
+          { id: 'shopping', label: 'خرید', icon: ShoppingCart },
+          { id: 'planner', label: 'برنامه', icon: Calendar },
+        ].map(item => {
+          const Icon = item.icon;
+          return <button key={item.id} className={currentView === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={19}/><span>{item.label}</span></button>;
+        })}
+        <button className={mobileNavOpen ? 'active' : ''} onClick={() => setMobileNavOpen(v => !v)}><Menu size={19}/><span>بیشتر</span></button>
+      </nav>
+      {mobileNavOpen && <div className="mobile-menu-sheet">
+        {navItems.filter(item => !['home', 'recommend', 'shopping', 'planner'].includes(item.id)).map(item => {
+          const Icon = item.icon;
+          return <button key={item.id} onClick={() => navigate(item.id)}><Icon size={18}/>{item.label}</button>;
+        })}
+      </div>}
+
       {/* MAIN CONTENT AREA */}
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         
         {/* TOPBAR WITH SHAMSI DATE, CLOCK AND VOICE HERO BAR */}
-        <header style={{
+        <header className="app-header" style={{
           background: 'var(--surface)',
           borderBottom: '1px solid var(--border)',
           padding: '14px 32px',
@@ -668,7 +735,7 @@ export function App() {
         </header>
 
         {/* Dynamic Page Views */}
-        <div style={{ padding: '28px 32px', flex: 1 }}>
+        <div className="app-content" style={{ padding: '28px 32px', flex: 1 }}>
 
           {/* ════════════════════════════════════════════════════
               1. VIEW: DASHBOARD HOME
@@ -896,6 +963,11 @@ export function App() {
                 <p style={{ color: 'var(--text-2)', fontSize: 13, marginTop: 4 }}>
                   {recommendations?.ai_reasoning}
                 </p>
+                {recommendations && recommendations.available_count < 3 && (
+                  <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 6 }}>
+                    فعلاً {recommendations.available_count.toLocaleString('fa-IR')} گزینه مجاز داریم؛ برای پیشنهادهای بیشتر باید رسپی‌های سازگار دیگری اضافه شود.
+                  </p>
+                )}
               </div>
 
               {/* Filters row */}
@@ -998,10 +1070,10 @@ export function App() {
                   }}
                 >
                   <circle cx="100" cy="100" r="95" fill="var(--surface)" stroke="var(--border-2)" strokeWidth="4" />
-                  <path d="M100 100 L100 5 A95 95 0 0 1 195 100 Z" fill="#2F6B4F" opacity="0.9" />
+                  <path d="M100 100 L100 5 A95 95 0 0 1 195 100 Z" fill="var(--primary)" opacity="0.9" />
                   <path d="M100 100 L195 100 A95 95 0 0 1 100 195 Z" fill="#E88B52" opacity="0.9" />
                   <path d="M100 100 L100 195 A95 95 0 0 1 5 100 Z" fill="#7D6FB5" opacity="0.9" />
-                  <path d="M100 100 L5 100 A95 95 0 0 1 100 5 Z" fill="#47A376" opacity="0.9" />
+                  <path d="M100 100 L5 100 A95 95 0 0 1 100 5 Z" fill="var(--primary-light-2)" opacity="0.9" />
                   <circle cx="100" cy="100" r="22" fill="var(--bg)" stroke="var(--border-2)" strokeWidth="3" />
                 </svg>
 
@@ -1170,11 +1242,14 @@ export function App() {
               5. VIEW: COOKING MODE (WITH IDEMPOTENT DEDUCTION)
              ════════════════════════════════════════════════════ */}
           {currentView === 'cooking' && selectedRecipe && (
-            <div style={{ maxWidth: 680, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ maxWidth: 1060, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h1 style={{ fontSize: 20, fontWeight: 800 }}>حالت آشپزی: {selectedRecipe.title}</h1>
                 <button className="btn btn-ghost" onClick={() => navigate('recipe')}>بازگشت</button>
               </div>
+
+              <div className="cooking-layout">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
               {/* Digital Countdown Timer */}
               <div className="card" style={{ textAlign: 'center', padding: 28 }}>
@@ -1241,6 +1316,49 @@ export function App() {
                 >
                   ✓ پایان موفق آشپزی و کسر از انبار
                 </button>
+              </div>
+
+              </div>
+
+              <aside className="cooking-status-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 10, background: 'var(--lavender-light)', color: 'var(--lavender)' }}><Music size={18}/></div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800 }}>موسیقیِ آشپزی</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)' }}>{musicPlaying ? 'در حال پخش' : 'متوقف'}</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: 18, fontWeight: 700, fontSize: 13 }}>بی‌کلامِ آرام برای آشپزی</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>تمرکز • ۴ دقیقه</div>
+                <div className="music-progress" aria-label="پیشرفت موسیقی"><span style={{ width: `${(musicSeconds / 240) * 100}%` }} /></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)' }}><span>{formatTimer(musicSeconds)}</span><span>{formatTimer(240 - musicSeconds)}</span></div>
+                <button className="btn btn-secondary" style={{ width: '100%', marginTop: 16 }} onClick={() => setMusicPlaying(playing => !playing)}>
+                  {musicPlaying ? <Pause size={16}/> : <Play size={16}/>} {musicPlaying ? 'توقف موسیقی' : 'پخش موسیقی'}
+                </button>
+                <div className="cooking-status-divider" />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700 }}><Volume2 size={15} color="var(--primary)"/> وضعیت جلسه</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+                  <div className="status-metric"><span>مرحله</span><strong>{activeStepIndex + 1}/{selectedRecipe.steps.length}</strong></div>
+                  <div className="status-metric"><span>تایمر</span><strong>{formatTimer(cookingTimer)}</strong></div>
+                </div>
+                <div className="cooking-status-divider" />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800 }}>نقشه راه پخت</div>
+                  <span className="badge badge-success">{Math.round(((activeStepIndex + 1) / selectedRecipe.steps.length) * 100)}٪</span>
+                </div>
+                <ol className="cooking-roadmap">
+                  {selectedRecipe.steps.map((step, index) => {
+                    const isDone = index < activeStepIndex;
+                    const isCurrent = index === activeStepIndex;
+                    return (
+                      <li key={step} className={isCurrent ? 'current' : isDone ? 'done' : ''}>
+                        <span className="roadmap-dot">{isDone ? <Check size={12} /> : index + 1}</span>
+                        <span>{step}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </aside>
               </div>
 
             </div>
@@ -1426,7 +1544,7 @@ export function App() {
                   پشتیبانی از فرمت‌های JPG و PNG فاکتورهای فروشگاهی
                 </p>
                 <button className="btn btn-primary" onClick={handleScanReceipt}>
-                  شبیه‌سازی اسکن و استخراج اقلام OCR
+                  استخراج پیش‌نویس اقلام
                 </button>
               </div>
 
@@ -1443,20 +1561,21 @@ export function App() {
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {receiptData.items.map(it => (
-                      <div key={it.id} style={{
+                      <button key={it.id} onClick={() => handleToggleReceiptItem(it.id)} style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         padding: '10px 12px',
                         background: 'var(--surface-2)',
                         borderRadius: 'var(--radius-sm)'
+                        , border: it.checked ? '1px solid var(--primary)' : '1px solid var(--border)', cursor: 'pointer', opacity: it.checked ? 1 : 0.55, width: '100%', textAlign: 'right', color: 'var(--text)'
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <CheckSquare size={16} color="var(--primary)" />
+                          <CheckSquare size={16} color={it.checked ? 'var(--primary)' : 'var(--muted)'} />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name} ({it.quantity} {it.unit})</span>
                         </div>
                         <div style={{ fontSize: 12, fontWeight: 700 }}>{it.price.toLocaleString('fa-IR')} ت</div>
-                      </div>
+                      </button>
                     ))}
                   </div>
 

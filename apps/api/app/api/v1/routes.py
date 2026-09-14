@@ -110,10 +110,13 @@ async def get_recipe(recipe_id: str):
 # ----------------- RECOMMENDATIONS (CRITICAL: ALLERGEN HARD FILTER) -----------------
 @router.post("/recommendations", response_model=RecommendationResponse)
 async def get_recommendations(filters: RecommendationFilter = None):
-    # Enforce strict allergen filter from household rules
-    active_allergens = [a.lower() for a in household_db.health.allergies]
     clean_pantry = pantry_db.copy()
-    return recommender_engine.get_recommendations(pantry=clean_pantry, filters=filters)
+    try:
+        return recommender_engine.get_recommendations(
+            pantry=clean_pantry, filters=filters, health=household_db.health
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 # ----------------- COOKING SESSION (IDEMPOTENT DEDUCTION) -----------------
 class FinishCookingRequest(BaseModel):
@@ -213,6 +216,23 @@ async def scan_receipt():
         ]
     }
 
+@router.post("/receipts/{receipt_id}/confirm")
+async def confirm_receipt(receipt_id: str, items: List[dict]):
+    """Only user-selected draft rows are turned into stock movements."""
+    added = []
+    for item in items:
+        if not item.get("checked", True):
+            continue
+        new_item = PantryItem(
+            id=f"p-{uuid.uuid4().hex[:6]}", name=item["name"],
+            category=item.get("category", "یخچال"), quantity=float(item.get("quantity", 1)),
+            unit=item.get("unit", "عدد"), expiry_days_left=int(item.get("expiry_days_left", 5)),
+            is_expiring_soon=False,
+        )
+        pantry_db.insert(0, new_item)
+        added.append(new_item.name)
+    return {"success": True, "message": f"{len(added)} قلمِ تأییدشده به موجودی افزوده شد.", "added": added}
+
 # ----------------- FAMILY TASKS -----------------
 @router.get("/family-tasks")
 async def get_family_tasks():
@@ -238,5 +258,25 @@ async def confirm_action(draft: AiActionDraft):
         )
         pantry_db.insert(0, new_item)
         return {"success": True, "message": f"«{new_item.name}» با موفقیت به موجودی اضافه شد.", "item": new_item}
+
+    if draft.action_type == "add_shopping":
+        item = draft.payload
+        new_item = {
+            "id": f"s-{uuid.uuid4().hex[:6]}", "name": item.get("item", "قلم مورد نیاز"),
+            "amount": item.get("amount", "۱ عدد"), "category": item.get("category", "عمومی"),
+            "checked": False, "estimated_price": 0,
+        }
+        shopping_list_db.insert(0, new_item)
+        return {"success": True, "message": f"«{new_item['name']}» به فهرست خرید افزوده شد.", "item": new_item}
+
+    if draft.action_type == "plan_meal":
+        payload = draft.payload
+        plan = meal_plan_db[0]
+        meal = payload.get("meal", "ناهار")
+        if meal == "شام":
+            plan["dinner"] = payload.get("recipe", "پیشنهاد برگزیده")
+        else:
+            plan["lunch"] = payload.get("recipe", "پیشنهاد برگزیده")
+        return {"success": True, "message": "وعده پیشنهادی پس از تأیید شما در برنامه ثبت شد."}
 
     return {"success": True, "message": "عملیات با تأیید شما ثبت شد."}

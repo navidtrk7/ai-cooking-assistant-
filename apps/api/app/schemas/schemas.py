@@ -82,6 +82,8 @@ class RecommendationResponse(BaseModel):
     top_recipe: Recipe
     alternatives: List[Recipe]
     ai_reasoning: str
+    excluded_count: int = 0
+    available_count: int = 0
 
 # --- AI Assistant Schemas ---
 class ChatMessage(BaseModel):

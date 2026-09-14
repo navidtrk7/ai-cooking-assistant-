@@ -93,6 +93,16 @@ export const api = {
     return res.json();
   },
 
+  async confirmReceipt(receipt: ReceiptScan): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/receipts/${receipt.receipt_id}/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(receipt.items),
+    });
+    if (!res.ok) throw new Error('خطا در ثبت اقلام فاکتور');
+    return res.json();
+  },
+
   async getFamilyTasks(): Promise<FamilyTask[]> {
     const res = await fetch(`${API_BASE_URL}/family-tasks`);
     if (!res.ok) throw new Error('خطا در دریافت وظایف خانواده');

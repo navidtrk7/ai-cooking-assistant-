@@ -74,6 +74,8 @@ export interface RecommendationResponse {
   top_recipe: Recipe;
   alternatives: Recipe[];
   ai_reasoning: string;
+  excluded_count: number;
+  available_count: number;
 }
 
 export interface AiActionDraft {
@@ -135,6 +137,7 @@ export interface ReceiptItem {
   category: string;
   price: number;
   checked: boolean;
+  expiry_days_left?: number;
 }
 
 export interface ReceiptScan {
