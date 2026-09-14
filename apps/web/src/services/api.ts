@@ -54,6 +54,16 @@ export const api = {
     return res.json();
   },
 
+  async sendRecommendationFeedback(recipeId: string, action: string, notes?: string): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${API_BASE_URL}/recommendations/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipe_id: recipeId, action, notes }),
+    });
+    if (!res.ok) throw new Error('خطا در ثبت بازخورد پیشنهاد');
+    return res.json();
+  },
+
   async getRecipeCatalog(): Promise<{ count: number; items: RecipeCatalogItem[] }> {
     const res = await fetch(`${API_BASE_URL}/recipes/catalog`);
     if (!res.ok) throw new Error('خطا در دریافت فهرست غذاها');

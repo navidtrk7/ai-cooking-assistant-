@@ -12,7 +12,7 @@ import { api } from './services/api';
 import type { 
   PantryItem, Recipe, RecommendationResponse, ChatMessage, 
   MealPlanDay, ShoppingItem, StoreComparison, ReceiptScan, FamilyTask,
-  AiStatusResponse, User, GeminiModelInfo, RecipeCatalogItem
+  AiStatusResponse, User, GeminiModelInfo, RecipeCatalogItem, Household
 } from './types';
 import { AuthModal } from './components/auth/AuthModal';
 import { AdminPanel } from './components/admin/AdminPanel';
@@ -57,6 +57,9 @@ export function App() {
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [storesData, setStoresData] = useState<StoreComparison | null>(null);
   const [familyTasks, setFamilyTasks] = useState<FamilyTask[]>([]);
+  const [household, setHousehold] = useState<Household | null>(null);
+  const [activeMemberTab, setActiveMemberTab] = useState<string>('m1');
+  const [feedbackLoading, setFeedbackLoading] = useState<string | null>(null);
   const [receiptData, setReceiptData] = useState<ReceiptScan | null>(null);
   const [recipeCatalog, setRecipeCatalog] = useState<RecipeCatalogItem[]>([]);
   const [catalogFilter, setCatalogFilter] = useState<string>('همه');
@@ -170,13 +173,14 @@ export function App() {
           setGeminiModelInput(st.gemini_model || 'gemini-3.6-flash');
         }).catch(() => {});
 
-        const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes] = await Promise.all([
+        const [pantryRes, recsRes, plansRes, shopRes, storesRes, tasksRes, householdRes] = await Promise.all([
           api.getPantry().catch(() => []),
           api.getRecommendations().catch(() => null),
           api.getMealPlans().catch(() => []),
           api.getShoppingList().catch(() => []),
           api.getStoresComparison().catch(() => null),
-          api.getFamilyTasks().catch(() => [])
+          api.getFamilyTasks().catch(() => []),
+          api.getHousehold().catch(() => null)
         ]);
 
         setPantry(pantryRes);
@@ -186,6 +190,7 @@ export function App() {
         setShoppingList(shopRes);
         setStoresData(storesRes);
         setFamilyTasks(tasksRes);
+        if (householdRes) setHousehold(householdRes);
         api.getRecipeCatalog().then(result => setRecipeCatalog(result.items)).catch(() => undefined);
       } catch (err) {
         console.error('Failed to load initial data:', err);
@@ -278,6 +283,27 @@ export function App() {
       setWheelResult(chosen);
       showToast(`🎯 گردونه انتخاب کرد: ${chosen}`);
     }, 2500);
+  };
+
+  // Quick feedback handler for recommendations
+  const handleRecommendationFeedback = async (recipeId: string, action: string, notes?: string) => {
+    try {
+      setFeedbackLoading(`${recipeId}-${action}`);
+      const res = await api.sendRecommendationFeedback(recipeId, action, notes);
+      showToast(res.message);
+      const [recsRes, houseRes, pantryRes] = await Promise.all([
+        api.getRecommendations().catch(() => null),
+        api.getHousehold().catch(() => null),
+        api.getPantry().catch(() => [])
+      ]);
+      if (recsRes) setRecommendations(recsRes);
+      if (houseRes) setHousehold(houseRes);
+      setPantry(pantryRes);
+    } catch (err: any) {
+      showToast('خطا در ثبت بازخورد: ' + (err.message || 'نامشخص'));
+    } finally {
+      setFeedbackLoading(null);
+    }
   };
 
   // Add item to pantry
@@ -1209,68 +1235,204 @@ export function App() {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
-                {recommendations?.top_recipe && (
-                  <div className="card" style={{ border: '2px solid var(--primary)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span className="badge badge-success">رتبه ۱ (بهترین تطابق)</span>
-                      <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>
-                        {recommendations.top_recipe.pantry_match_percent}٪
-                      </span>
-                    </div>
+                {/* 3 Diverse Explainable Recommendations */}
+                {recommendations?.recommendations && recommendations.recommendations.length > 0 ? (
+                  recommendations.recommendations.map(rec => (
+                    <div 
+                      key={rec.recipe_id} 
+                      className="card"
+                      style={rec.rank === 1 ? { border: '2px solid var(--primary)', display: 'flex', flexDirection: 'column' } : { display: 'flex', flexDirection: 'column' }}
+                    >
+                      {/* Card Header: Rank & Tag */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <span className={rec.rank === 1 ? 'badge badge-success' : 'badge badge-ai'}>
+                          {rec.tag}
+                        </span>
+                        <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>
+                          {Math.round(rec.score * 100)}٪ تطابق
+                        </span>
+                      </div>
 
-                    <h3 style={{ fontSize: 18, fontWeight: 800 }}>{recommendations.top_recipe.title}</h3>
-                    <p style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 16px', lineHeight: 1.6 }}>
-                      {recommendations.top_recipe.match_reasons[0]}
-                    </p>
+                      <h3 style={{ fontSize: 18, fontWeight: 800 }}>{rec.recipe_name}</h3>
+                      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 12px' }}>
+                        زمان پخت: {rec.recipe.cook_time_minutes} دقیقه • هزینه تخمینی: {rec.recipe.estimated_cost_toman.toLocaleString('fa-IR')} تومان
+                      </p>
 
-                    {/* Radar Dimension Scores */}
-                    <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 'var(--radius-sm)', marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>شاخص‌های ۵ محوره راداری:</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 11.5 }}>
-                        <div>انبار: {recommendations.top_recipe.radar_scores.pantry}٪</div>
-                        <div>سلامت: {recommendations.top_recipe.radar_scores.health}٪</div>
-                        <div>سرعت: {recommendations.top_recipe.radar_scores.speed}٪</div>
-                        <div>اقتصادی: {recommendations.top_recipe.radar_scores.budget}٪</div>
+                      {/* AI Explainable Reasons */}
+                      <div style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>دلایل انتخاب توسط موتور تطبیق:</div>
+                        <ul style={{ margin: 0, paddingRight: 16, fontSize: 11.5, lineHeight: 1.6, color: 'var(--text-2)' }}>
+                          {rec.reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* Non-clinical Health Notes */}
+                      {rec.health_notes && rec.health_notes.length > 0 && (
+                        <div style={{ fontSize: 11, background: 'rgba(56, 161, 105, 0.08)', color: 'var(--primary)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>💡</span>
+                          <span>{rec.health_notes.join(' • ')}</span>
+                        </div>
+                      )}
+
+                      {/* Missing Items & Substitutions */}
+                      {rec.missing_items && rec.missing_items.length > 0 && (
+                        <div style={{ fontSize: 11, background: 'rgba(237, 137, 54, 0.08)', padding: '8px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+                          <div style={{ fontWeight: 700, color: 'var(--apricot)', marginBottom: 4 }}>کسری اقلام انبار برای خرید:</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {rec.missing_items.map((m, idx) => (
+                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <span>{m.ingredient}:</span>
+                                <span>نیاز {m.needed} (موجود {m.available}) ← خرید: {m.to_buy}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {rec.substitutions && rec.substitutions.length > 0 && (
+                        <div style={{ fontSize: 11, background: 'rgba(125, 111, 181, 0.08)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginBottom: 12 }}>
+                          <span style={{ fontWeight: 700, color: 'var(--lavender)' }}>جایگزین پیشنهادی: </span>
+                          {rec.substitutions.map((s, idx) => (
+                            <span key={idx}>{s.alternative} به جای {s.missing} ({s.impact})</span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* View Details Button */}
+                      <button 
+                        className="btn btn-primary"
+                        style={{ width: '100%', marginBottom: 12 }}
+                        onClick={() => {
+                          setSelectedRecipe(rec.recipe);
+                          navigate('recipe');
+                        }}
+                      >
+                        مشاهده جزئیات کامل و مقیاس سهم‌ها
+                      </button>
+
+                      {/* 5 Quick Feedback Buttons */}
+                      <div style={{ marginTop: 'auto', borderTop: '1px dashed var(--border)', paddingTop: 10 }}>
+                        <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 6, textAlign: 'center' }}>
+                          بازخورد سریع شما به موتور هوشمند:
+                        </div>
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'center' }}>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                            disabled={feedbackLoading === `${rec.recipe_id}-cooked`}
+                            onClick={() => handleRecommendationFeedback(rec.recipe_id, 'cooked')}
+                            title="ثبت در سوابق و کسر از موجودی خانه"
+                          >
+                            🍳 پختم
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                            disabled={feedbackLoading === `${rec.recipe_id}-liked`}
+                            onClick={() => handleRecommendationFeedback(rec.recipe_id, 'liked')}
+                            title="افزایش امتیاز ذائقه خانواده برای این غذا"
+                          >
+                            ❤️ دوست داشتیم
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                            disabled={feedbackLoading === `${rec.recipe_id}-missing`}
+                            onClick={() => handleRecommendationFeedback(rec.recipe_id, 'missing')}
+                            title="اعلام مغایرت موجودی انبار"
+                          >
+                            📦 مواد نداشتم
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                            disabled={feedbackLoading === `${rec.recipe_id}-expensive`}
+                            onClick={() => handleRecommendationFeedback(rec.recipe_id, 'expensive')}
+                            title="تنظیم حساسیت بودجه‌ای"
+                          >
+                            💰 گران بود
+                          </button>
+                          <button
+                            className="btn btn-outline btn-sm"
+                            style={{ fontSize: 11, padding: '4px 8px', color: 'var(--danger)' }}
+                            disabled={feedbackLoading === `${rec.recipe_id}-dislike`}
+                            onClick={() => handleRecommendationFeedback(rec.recipe_id, 'dislike')}
+                            title="ثبت عدم علاقه اعضا برای کاهش تکرار"
+                          >
+                            🚫 نپسندیدیم
+                          </button>
+                        </div>
                       </div>
                     </div>
+                  ))
+                ) : (
+                  /* Fallback to Top Recipe & Alternatives if new schema not loaded */
+                  <>
+                    {recommendations?.top_recipe && (
+                      <div className="card" style={{ border: '2px solid var(--primary)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <span className="badge badge-success">رتبه ۱ (بهترین تطابق)</span>
+                          <span style={{ fontWeight: 800, color: 'var(--primary)', fontSize: 16 }}>
+                            {recommendations.top_recipe.pantry_match_percent}٪
+                          </span>
+                        </div>
 
-                    <button 
-                      className="btn btn-primary"
-                      style={{ width: '100%' }}
-                      onClick={() => {
-                        setSelectedRecipe(recommendations.top_recipe);
-                        navigate('recipe');
-                      }}
-                    >
-                      مشاهده جزئیات کامل و مقیاس سهم‌ها
-                    </button>
-                  </div>
+                        <h3 style={{ fontSize: 18, fontWeight: 800 }}>{recommendations.top_recipe.title}</h3>
+                        <p style={{ fontSize: 12.5, color: 'var(--text-2)', margin: '8px 0 16px', lineHeight: 1.6 }}>
+                          {recommendations.top_recipe.match_reasons[0]}
+                        </p>
+
+                        <div style={{ background: 'var(--surface-2)', padding: 12, borderRadius: 'var(--radius-sm)', marginBottom: 16 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>شاخص‌های ۵ محوره راداری:</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 11.5 }}>
+                            <div>انبار: {recommendations.top_recipe.radar_scores.pantry}٪</div>
+                            <div>سلامت: {recommendations.top_recipe.radar_scores.health}٪</div>
+                            <div>سرعت: {recommendations.top_recipe.radar_scores.speed}٪</div>
+                            <div>اقتصادی: {recommendations.top_recipe.radar_scores.budget}٪</div>
+                          </div>
+                        </div>
+
+                        <button 
+                          className="btn btn-primary"
+                          style={{ width: '100%' }}
+                          onClick={() => {
+                            setSelectedRecipe(recommendations.top_recipe);
+                            navigate('recipe');
+                          }}
+                        >
+                          مشاهده جزئیات کامل و مقیاس سهم‌ها
+                        </button>
+                      </div>
+                    )}
+
+                    {recommendations?.alternatives.map(rec => (
+                      <div key={rec.id} className="card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <span className="badge badge-ai">گزینه جایگزین</span>
+                          <span style={{ fontWeight: 700, fontSize: 15 }}>{rec.pantry_match_percent}٪ تطابق</span>
+                        </div>
+
+                        <h3 style={{ fontSize: 18, fontWeight: 800 }}>{rec.title}</h3>
+                        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 14px' }}>
+                          زمان پخت: {rec.cook_time_minutes} دقیقه • هزینه: {rec.estimated_cost_toman.toLocaleString('fa-IR')} تومان
+                        </p>
+
+                        <button 
+                          className="btn btn-secondary"
+                          style={{ width: '100%', marginTop: 'auto' }}
+                          onClick={() => {
+                            setSelectedRecipe(rec);
+                            navigate('recipe');
+                          }}
+                        >
+                          مشاهده دستور پخت
+                        </button>
+                      </div>
+                    ))}
+                  </>
                 )}
-
-                {recommendations?.alternatives.map(rec => (
-                  <div key={rec.id} className="card">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span className="badge badge-ai">گزینه جایگزین</span>
-                      <span style={{ fontWeight: 700, fontSize: 15 }}>{rec.pantry_match_percent}٪ تطابق</span>
-                    </div>
-
-                    <h3 style={{ fontSize: 18, fontWeight: 800 }}>{rec.title}</h3>
-                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 14px' }}>
-                      زمان پخت: {rec.cook_time_minutes} دقیقه • هزینه: {rec.estimated_cost_toman.toLocaleString('fa-IR')} تومان
-                    </p>
-
-                    <button 
-                      className="btn btn-secondary"
-                      style={{ width: '100%', marginTop: 'auto' }}
-                      onClick={() => {
-                        setSelectedRecipe(rec);
-                        navigate('recipe');
-                      }}
-                    >
-                      مشاهده دستور پخت
-                    </button>
-                  </div>
-                ))}
               </div>
             </div>
           )}
@@ -1940,21 +2102,183 @@ export function App() {
                 </p>
               </div>
 
-              {/* Members */}
+              {/* Household Members Selector */}
               <div className="card">
-                <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>اعضای خانواده:</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--primary)', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>ن</div>
-                    <div><div style={{ fontSize: 13, fontWeight: 700 }}>نوید</div><div style={{ fontSize: 10, color: 'var(--muted)' }}>پدر — مدیر خانواده</div></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700 }}>پروفایل اعضای خانواده:</h3>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>برای مشاهده قواعد سلامت و ذائقه کلیک کنید</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
+                  {(household?.members && household.members.length > 0 ? household.members : [
+                    { id: 'm1', name: 'نوید', role: 'پدر', avatar_char: 'ن', avatar_color: 'var(--primary)' },
+                    { id: 'm2', name: 'مریم', role: 'مادر', avatar_char: 'م', avatar_color: 'var(--apricot)' },
+                    { id: 'm3', name: 'آریا', role: 'کودک (۸ ساله)', avatar_char: 'آ', avatar_color: 'var(--lavender)' },
+                    { id: 'm4', name: 'مادربزرگ', role: 'بزرگسال', avatar_char: 'گ', avatar_color: '#4FD1C5' },
+                  ]).map(m => {
+                    const isSelected = (activeMemberTab === m.id) || (!activeMemberTab && m.id === 'm1');
+                    return (
+                      <div 
+                        key={m.id}
+                        onClick={() => setActiveMemberTab(m.id)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '10px 12px',
+                          background: isSelected ? 'var(--surface-2)' : 'var(--surface)',
+                          border: isSelected ? '2px solid var(--primary)' : '1px solid var(--border)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <div style={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: '50%',
+                          background: m.avatar_color || 'var(--primary)',
+                          color: '#FFF',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 800,
+                          fontSize: 14
+                        }}>
+                          {m.avatar_char || m.name[0]}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 700 }}>{m.name}</div>
+                          <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{m.role}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Selected Member Detail View */}
+                {(() => {
+                  const selected = (household?.members || []).find(m => m.id === activeMemberTab) || household?.members?.[0];
+                  if (!selected) return null;
+
+                  return (
+                    <div style={{ background: 'var(--surface-2)', padding: 14, borderRadius: 'var(--radius-sm)', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 800 }}>
+                          اطلاعات سلامت و ذائقه {selected.name} ({selected.role}):
+                        </div>
+                        {selected.health_profile?.health_data_consent && (
+                          <span className="badge badge-success" style={{ fontSize: 10 }}>رضایت پردازش سلامت ثبت شده</span>
+                        )}
+                      </div>
+
+                      {/* Hard Constraints / Allergies */}
+                      <div>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--danger)', marginBottom: 6 }}>
+                          ⛔ قواعد سخت سلامت و آلرژی‌ها (حذف قطعی بدون دورزدن AI):
+                        </div>
+                        {selected.dietary_constraints && selected.dietary_constraints.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {selected.dietary_constraints.map(c => (
+                              <span 
+                                key={c.id} 
+                                style={{
+                                  fontSize: 11,
+                                  padding: '4px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  background: c.severity === 'critical' ? 'rgba(229, 62, 62, 0.12)' : 'var(--surface)',
+                                  color: c.severity === 'critical' ? 'var(--danger)' : 'var(--text)',
+                                  border: `1px solid ${c.severity === 'critical' ? 'var(--danger)' : 'var(--border)'}`,
+                                  fontWeight: c.severity === 'critical' ? 700 : 500
+                                }}
+                              >
+                                {c.notes || c.target_code} ({c.severity === 'critical' ? 'آلرژی بحرانی' : c.rule_mode === 'limit' ? 'محدودیت مصرف' : 'پرهیز'})
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>هیچ آلرژی یا محدودیت حادی ثبت نشده است.</span>
+                        )}
+                      </div>
+
+                      {/* Nutrition Goals */}
+                      {selected.nutrition_goals && selected.nutrition_goals.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--primary)', marginBottom: 6 }}>
+                            🎯 اهداف تغذیه‌ای (اولویت ۱ تا ۵):
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {selected.nutrition_goals.map(g => (
+                              <span key={g.id} className="badge badge-ai" style={{ fontSize: 11, padding: '4px 8px' }}>
+                                {g.goal_type === 'lower_sodium' ? 'کاهش سدیم و نمک' :
+                                 g.goal_type === 'weight_maintenance' ? 'تثبیت وزن' :
+                                 g.goal_type === 'high_fiber' ? 'افزایش فیبر' :
+                                 g.goal_type === 'child_growth' ? 'رشد و قد کودک' :
+                                 g.goal_type === 'adequate_protein' ? 'پروتئین کافی' :
+                                 g.goal_type === 'heart_friendly' ? 'دوستدار قلب' : g.goal_type} (اولویت {g.priority}/۵)
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Food Preferences */}
+                      {selected.food_preferences && selected.food_preferences.length > 0 && (
+                        <div>
+                          <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--apricot)', marginBottom: 6 }}>
+                            ❤️ سوابق ذائقه و علاقه (از ۵- تا ۵+):
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {selected.food_preferences.map(p => (
+                              <span 
+                                key={p.id}
+                                style={{
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  borderRadius: 12,
+                                  background: p.preference_score > 0 ? 'rgba(56, 161, 105, 0.1)' : 'rgba(229, 62, 62, 0.1)',
+                                  color: p.preference_score > 0 ? 'var(--primary)' : 'var(--danger)',
+                                  fontWeight: 600
+                                }}
+                              >
+                                {p.target_code}: {p.preference_score > 0 ? `+${p.preference_score}` : p.preference_score}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Household Food Policy Card */}
+              <div className="card">
+                <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>سیاست‌های کلان غذایی خانواده:</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, fontSize: 12 }}>
+                  <div style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 2 }}>سقف بودجه هفتگی:</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--primary)' }}>
+                      {(household?.policies?.weekly_budget_toman || 8500000).toLocaleString('fa-IR')} تومان
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--apricot)', color: '#5C3A1E', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>م</div>
-                    <div><div style={{ fontSize: 13, fontWeight: 700 }}>مریم</div><div style={{ fontSize: 10, color: 'var(--muted)' }}>مادر</div></div>
+                  <div style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 2 }}>حداکثر زمان پخت روزهای کاری:</div>
+                    <div style={{ fontSize: 14, fontWeight: 800 }}>
+                      {(household?.policies?.max_weekday_cooking_minutes || 45)} دقیقه
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--radius-sm)' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--lavender)', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>آ</div>
-                    <div><div style={{ fontSize: 13, fontWeight: 700 }}>آریا</div><div style={{ fontSize: 10, color: 'var(--muted)' }}>کودک — ۸ ساله</div></div>
+                  <div style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 2 }}>حفظ تنوع و سقف تکرار پروتئین:</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>
+                      مرغ (۳ بار) • گوشت (۲ بار) • ماهی (۲ بار)
+                    </div>
+                  </div>
+                  <div style={{ background: 'var(--surface-2)', padding: 10, borderRadius: 'var(--radius-sm)' }}>
+                    <div style={{ color: 'var(--muted)', fontSize: 11, marginBottom: 2 }}>اولویت مصرف انبار و پیشگیری از اسراف:</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>
+                      فعال (اولویت با اقلام نزدیک انقضا)
+                    </div>
                   </div>
                 </div>
               </div>

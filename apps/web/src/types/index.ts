@@ -1,9 +1,64 @@
+export interface MemberHealthProfile {
+  height_cm?: number | null;
+  weight_kg?: number | null;
+  activity_level: string;
+  health_data_consent: boolean;
+  updated_at: string;
+}
+
+export interface MemberNutritionGoal {
+  id: string;
+  member_id: string;
+  goal_type: string;
+  priority: number;
+  target_value?: number | null;
+  target_unit?: string | null;
+  is_active: boolean;
+}
+
+export interface DietaryConstraint {
+  id: string;
+  member_id: string;
+  constraint_type: string; // allergy, intolerance, medical_limit, diet_pattern, disliked_food, ingredient_avoidance
+  target_type: string;
+  target_code: string;
+  severity: string; // critical, high, medium, low
+  rule_mode: string; // exclude, limit, prefer
+  max_amount_per_serving?: number | null;
+  notes?: string | null;
+  is_active: boolean;
+}
+
+export interface MemberFoodPreference {
+  id: string;
+  member_id: string;
+  target_type: string;
+  target_code: string;
+  preference_score: number; // -5 to +5
+  confidence: number;
+  source: string; // explicit, behavioral, inferred
+}
+
 export interface Member {
   id: string;
   name: string;
   role: string;
   avatar_color: string;
   avatar_char: string;
+  birth_date?: string | null;
+  health_profile?: MemberHealthProfile | null;
+  nutrition_goals?: MemberNutritionGoal[];
+  dietary_constraints?: DietaryConstraint[];
+  food_preferences?: MemberFoodPreference[];
+}
+
+export interface HouseholdFoodPolicy {
+  weekly_budget_toman: number;
+  max_repeat_per_week: Record<string, number>;
+  default_servings: number;
+  max_weekday_cooking_minutes: number;
+  prefer_existing_inventory: boolean;
+  avoid_food_waste: boolean;
 }
 
 export interface HealthPreferences {
@@ -19,16 +74,22 @@ export interface Household {
   member_count: number;
   members: Member[];
   health: HealthPreferences;
+  policies?: HouseholdFoodPolicy;
 }
 
 export interface PantryItem {
   id: string;
+  ingredient_id?: string | null;
   name: string;
+  canonical_name_fa?: string | null;
   category: string;
+  location?: string;
   quantity: number;
+  usable_quantity?: number | null;
   unit: string;
   expiry_days_left: number;
   is_expiring_soon: boolean;
+  confidence_score?: number;
   added_at: string;
 }
 
@@ -69,6 +130,33 @@ export interface Recipe {
   steps: string[];
 }
 
+export interface MissingItemDetail {
+  ingredient: string;
+  needed: string;
+  available: string;
+  to_buy: string;
+}
+
+export interface SubstitutionOption {
+  missing: string;
+  alternative: string;
+  impact: string;
+}
+
+export interface ExplainableRecommendation {
+  recipe_id: string;
+  recipe_name: string;
+  recipe: Recipe;
+  score: number;
+  confidence: number;
+  rank: number;
+  tag: string;
+  reasons: string[];
+  health_notes: string[];
+  missing_items: MissingItemDetail[];
+  substitutions: SubstitutionOption[];
+}
+
 export interface RecipeCatalogItem {
   recipe_id: string; title_fa: string; title_en: string; category: string; region: string;
   main_protein: string; base: string; prep_min: number; cook_min: number; total_min: number;
@@ -83,6 +171,7 @@ export interface RecommendationResponse {
   ai_reasoning: string;
   excluded_count: number;
   available_count: number;
+  recommendations?: ExplainableRecommendation[];
 }
 
 export interface AiActionDraft {

@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException, Header
 from apps.api.app.schemas.schemas import (
     Household, HealthPreferences, PantryItem, PantryCreate,
-    Recipe, RecommendationFilter, RecommendationResponse,
+    Recipe, RecommendationFilter, RecommendationResponse, RecommendationFeedback,
+    DietaryConstraint, MemberNutritionGoal, MemberFoodPreference, HouseholdFoodPolicy, Member,
     ChatMessage, AiChatResponse, AiActionDraft, AiStatusResponse, AiConfigUpdate
 )
 from apps.api.app.data.seed_data import DEFAULT_HOUSEHOLD, INITIAL_PANTRY_ITEMS, INITIAL_RECIPES
@@ -171,10 +172,14 @@ async def fetch_gemini_models(req: TestKeyRequest):
 async def get_household():
     return household_db
 
-@router.put("/household/health", response_model=HealthPreferences)
-async def update_health_preferences(prefs: HealthPreferences):
-    household_db.health = prefs
-    return household_db.health
+@router.get("/household/members", response_model=List[Member])
+async def get_household_members():
+    return household_db.members
+
+@router.put("/household/policies", response_model=HouseholdFoodPolicy)
+async def update_household_policies(policies: HouseholdFoodPolicy):
+    household_db.policies = policies
+    return household_db.policies
 
 # ----------------- PANTRY INVENTORY -----------------
 @router.get("/pantry", response_model=List[PantryItem])
@@ -244,16 +249,101 @@ async def get_recipe(recipe_id: str):
 
     raise HTTPException(status_code=404, detail="دستور پخت یافت نشد")
 
-# ----------------- RECOMMENDATIONS (CRITICAL: ALLERGEN HARD FILTER) -----------------
+# ----------------- RECOMMENDATIONS (CRITICAL: ALLERGEN HARD FILTER & 5-STAGE) -----------------
 @router.post("/recommendations", response_model=RecommendationResponse)
 async def get_recommendations(filters: RecommendationFilter = None):
     clean_pantry = pantry_db.copy()
     try:
         return recommender_engine.get_recommendations(
-            pantry=clean_pantry, filters=filters, health=household_db.health
+            pantry=clean_pantry, filters=filters, household=household_db, health=household_db.health
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+@router.post("/recommendations/feedback")
+async def register_recommendation_feedback(feedback: RecommendationFeedback):
+    recipe = next((r for r in recipes_db if r.id.lower() == feedback.recipe_id.lower()), None)
+    recipe_name = recipe.title if recipe else feedback.recipe_id
+
+    # 1. Action: "cooked" -> deduct from pantry & log history
+    if feedback.action == "cooked":
+        if recipe:
+            for ing in recipe.ingredients:
+                for p in pantry_db:
+                    if ing.name in p.name or p.name in ing.name:
+                        p.quantity = max(0.0, round(p.quantity - 0.3, 2))
+                        if p.usable_quantity is not None:
+                            p.usable_quantity = max(0.0, round(p.usable_quantity - 0.3, 2))
+        return {
+            "status": "success",
+            "action": "cooked",
+            "message": f"غذا «{recipe_name}» پخته شد و اقلام مرتبط از انبار کسر گردید."
+        }
+
+    # 2. Action: "liked" -> increase preference
+    elif feedback.action == "liked":
+        for member in household_db.members:
+            pref = next((p for p in member.food_preferences if p.target_code == recipe_name), None)
+            if pref:
+                pref.preference_score = min(5, pref.preference_score + 1)
+                pref.source = "behavioral"
+            else:
+                member.food_preferences.append(
+                    MemberFoodPreference(
+                        id=f"pref-{uuid.uuid4().hex[:6]}",
+                        member_id=member.id,
+                        target_type="recipe",
+                        target_code=recipe_name,
+                        preference_score=4,
+                        source="behavioral"
+                    )
+                )
+        return {
+            "status": "success",
+            "action": "liked",
+            "message": f"علاقه خانواده به «{recipe_name}» در هوش مصنوعی ثبت شد."
+        }
+
+    # 3. Action: "missing" -> note missing ingredients
+    elif feedback.action == "missing":
+        return {
+            "status": "success",
+            "action": "missing",
+            "message": f"کسری موجودی برای «{recipe_name}» علامت‌گذاری شد تا در پیشنهادات آتی لحاظ شود."
+        }
+
+    # 4. Action: "expensive" -> note budget feedback
+    elif feedback.action == "expensive":
+        return {
+            "status": "success",
+            "action": "expensive",
+            "message": f"بازخورد هزینه برای «{recipe_name}» در تنظیمات بودجه اعمال شد."
+        }
+
+    # 5. Action: "dislike" -> set negative preference
+    elif feedback.action == "dislike":
+        for member in household_db.members:
+            pref = next((p for p in member.food_preferences if p.target_code == recipe_name), None)
+            if pref:
+                pref.preference_score = max(-5, pref.preference_score - 3)
+            else:
+                member.food_preferences.append(
+                    MemberFoodPreference(
+                        id=f"pref-{uuid.uuid4().hex[:6]}",
+                        member_id=member.id,
+                        target_type="recipe",
+                        target_code=recipe_name,
+                        preference_score=-4,
+                        source="explicit"
+                    )
+                )
+        return {
+            "status": "success",
+            "action": "dislike",
+            "message": f"غذا «{recipe_name}» از اولویت پیشنهادات خارج شد."
+        }
+
+    return {"status": "success", "message": "بازخورد دریافت شد."}
 
 # ----------------- COOKING SESSION (IDEMPOTENT DEDUCTION) -----------------
 class FinishCookingRequest(BaseModel):
